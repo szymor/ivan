@@ -24,10 +24,12 @@ materialpredicate TrueMaterialPredicate = &material::True;
 void material::AddName(festring& Name, truth Articled, truth Adjective) const
 {
   if(Articled)
+  {
     if(GetNameFlags() & USE_AN)
       Name << "an ";
     else
       Name << "a ";
+  }
 
   Name << (Adjective ? GetAdjectiveStem() : GetNameStem());
 }

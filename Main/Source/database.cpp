@@ -19,7 +19,7 @@ int CreateConfigTable(databasebase*** ConfigTable, databasebase*** TempTable, da
   for(int c = 0; c < Configs; ++c)
   {
     int Config = TempConfig[c]->Config;
-    int Hash = Config >> 8 ^ Config & 0xFF;
+    int Hash = (Config >> 8) ^ (Config & 0xFF);
 
     if((TempTableInfo[Hash] & 0xFFFF) != Type)
     {
@@ -729,7 +729,7 @@ void databasesystem::Initialize()
 
 template <class type> inline void databasecreator<type>::FindDataBase(const database*& DataBase, const prototype* Proto, int Config)
 {
-  database** Table = Proto->ConfigTable[Config >> 8 ^ Config & 0xFF];
+  database** Table = Proto->ConfigTable[(Config >> 8) ^ (Config & 0xFF)];
 
   if(Table)
   {

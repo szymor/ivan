@@ -18,10 +18,12 @@
 void id::AddNameSingular(festring& String, truth Articled) const
 {
   if(Articled)
+  {
     if(UsesLongArticle())
       String << "an ";
     else
       String << "a ";
+  }
 
   String << GetNameSingular();
 }
@@ -73,7 +75,7 @@ void id::AddName(festring& Name, int Case, int Amount) const
       Name << "the ";
 
     Name << Amount << ' ';
-    AddName(Name, Case&~ARTICLE_BIT|PLURAL);
+    AddName(Name, (Case & ~ARTICLE_BIT) | PLURAL);
   }
 }
 
@@ -90,10 +92,12 @@ truth id::AddAdjective(festring& String, truth Articled) const
   if(GetAdjective().GetSize())
   {
     if(Articled)
+    {
       if(UsesLongAdjectiveArticle())
 	String << "an ";
       else
 	String << "a ";
+    }
 
     String << GetAdjective() << ' ';
     return true;

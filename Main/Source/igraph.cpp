@@ -119,7 +119,7 @@ void igraph::DrawCursor(v2 Pos, int CursorData)
 			{ 0, 0 },
 			{ Pos.X, Pos.Y },
 			{ TILE_SIZE, TILE_SIZE },
-			{ ivanconfig::GetContrastLuminance() },
+			{ int(ivanconfig::GetContrastLuminance()) },
 			TRANSPARENT_COLOR,
 			0 };
 
@@ -191,7 +191,16 @@ tilemap::iterator igraph::AddUser(const graphicid& GI)
       RawPos.X = RawPos.Y = 0;
     }
 
-    bitmap* Bitmap = RawBitmap->Colorize(RawPos, TILE_V2, GI.Position, GI.Color, GI.BaseAlpha, GI.Alpha, GI.RustData, !(GI.SpecialFlags & ST_DISALLOW_R_COLORS));
+    packcol16 LocalColor[4];
+    uchar LocalRust[4];
+
+    for(int c = 0; c < 4; ++c)
+    {
+      LocalColor[c] = GI.Color[c];
+      LocalRust[c] = GI.RustData[c];
+    }
+
+    bitmap* Bitmap = RawBitmap->Colorize(RawPos, TILE_V2, GI.Position, LocalColor, GI.BaseAlpha, GI.Alpha, LocalRust, !(GI.SpecialFlags & ST_DISALLOW_R_COLORS));
     Bitmap->ActivateFastFlag();
 
     if(BodyPartFlags)
@@ -220,7 +229,7 @@ tilemap::iterator igraph::AddUser(const graphicid& GI)
 
     if(SpecialFlags & ST_FLAMES)
     {
-      ulong SeedNFlags = SpecialFlags >> ST_FLAME_SHIFT & 3 | GI.Seed << 4;
+      ulong SeedNFlags = ((SpecialFlags >> ST_FLAME_SHIFT) & 3) | (GI.Seed << 4);
       Bitmap->CreateFlames(RawBitmap, RawPos - GI.Position, SeedNFlags, Frame);
     }
 
@@ -240,10 +249,9 @@ void igraph::EditBodyPartTile(rawbitmap* Source, rawbitmap* Dest, v2 Pos, int Bo
   else if(BodyPartFlags == ST_GROIN)
   {
     Source->NormalBlit(Dest, v2(Pos.X, Pos.Y + 8), v2(0, 8), v2(16, 2));
-    int i;
     v2 V;
 
-    for(V.Y = 10, i = 0; V.Y < 13; ++V.Y)
+    for(V.Y = 10; V.Y < 13; ++V.Y)
       for(V.X = V.Y - 5; V.X < 20 - V.Y; ++V.X)
 	Dest->PutPixel(V, Source->GetPixel(Pos + V));
   }
@@ -440,11 +448,11 @@ void igraph::UnLoadMenu()
 void igraph::CreateSilhouetteCaches()
 {
   int BodyPartSilhouetteMColorIndex[HUMANOID_BODYPARTS] = { 3, 0, 1, 2, 1, 2, 3 };
-  col24 ConditionColor[CONDITION_COLORS] = { MakeRGB16(48, 48, 48),
-					     MakeRGB16(120, 0, 0),
-					     MakeRGB16(180, 0, 0),
-					     MakeRGB16(180, 120, 120),
-					     MakeRGB16(180, 180, 180) };
+  col24 ConditionColor[CONDITION_COLORS] = { col24(MakeRGB16(48, 48, 48)),
+					     col24(MakeRGB16(120, 0, 0)),
+					     col24(MakeRGB16(180, 0, 0)),
+					     col24(MakeRGB16(180, 120, 120)),
+					     col24(MakeRGB16(180, 180, 180)) };
   v2 V(8, 64);
 
   for(int c1 = 0; c1 < HUMANOID_BODYPARTS; ++c1)

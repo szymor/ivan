@@ -17,7 +17,7 @@
 #include "error.h"
 
 char** festring::IntegerMap = 0;
-char* festring::EmptyString = "";
+const char* festring::EmptyString = "";
 const festring::sizetype festring::NPos = festring::sizetype(-1);
 
 festring& festring::Append(const char* CStr, sizetype N)
@@ -253,10 +253,12 @@ void festring::Resize(sizetype N, char C)
   else
   {
     if(OwnsData && OldPtr)
+    {
       if(!REFS(OldPtr))
 	return;
       else
 	--REFS(OldPtr);
+    }
 
     Reserved = N|FESTRING_PAGE;
     NewPtr = sizeof(ulong) + new char[Reserved + sizeof(ulong) + 1];

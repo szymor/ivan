@@ -270,6 +270,7 @@ void globalwindowhandler::ProcessMessage(SDL_Event* Event)
 	KeyPressed = '\177';
 	break;
       }
+      [[fallthrough]];
      default:
       KeyPressed = Event->key.keysym.unicode;
 

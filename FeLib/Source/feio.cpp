@@ -205,7 +205,7 @@ int iosystem::Menu(const bitmap* BackGround, v2 Pos,
 			    { 0, 0 },
 			    { 0, 0 },
 			    { RES.X, RES.Y },
-			    { MakeRGB24(Element, Element, Element) },
+			    { int(MakeRGB24(Element, Element, Element)) },
 			    0,
 			    0 };
       Backup.LuminanceMaskedBlit(BlitData);
@@ -275,7 +275,7 @@ int iosystem::StringQuestion(festring& Input,
   blitdata B = { &BackUp,
 		 { Pos.X, Pos.Y + 10 },
 		 { 0, 0 },
-		 { (MaxLetters << 3) + 9, 9 },
+		 { int((MaxLetters << 3) + 9), 9 },
 		 { 0 },
 		 0,
 		 0 };
@@ -343,6 +343,7 @@ int iosystem::StringQuestion(festring& Input,
     }
 
     if(LastKey == KEY_ENTER)
+    {
       if(Input.GetSize() >= MinLetters)
 	break;
       else
@@ -350,6 +351,7 @@ int iosystem::StringQuestion(festring& Input,
 	TooShort = true;
 	continue;
       }
+    }
 
     if(LastKey >= 0x20 && Input.GetSize() < MaxLetters
        && (LastKey != ' ' || !Input.IsEmpty()))
@@ -503,7 +505,7 @@ long iosystem::ScrollBarQuestion(const festring& Topic, v2 Pos,
   blitdata B1 = { 0,
 		  { 0, 0 },
 		  { Pos.X, Pos.Y },
-		  { ((Topic.GetSize() + 14) << 3) + 1, 10 },
+		  { int(((Topic.GetSize() + 14) << 3) + 1), 10 },
 		  { 0 },
 		  0,
 		  0 };

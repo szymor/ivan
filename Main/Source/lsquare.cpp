@@ -202,7 +202,7 @@ void lsquare::UpdateStaticContentCache(col24 Luminance) const
 		 { 0, 0 },
 		 { 0, 0 },
 		 { TILE_SIZE, TILE_SIZE },
-		 { Luminance },
+		 { int(Luminance) },
 		 0,
 		 0 };
 
@@ -361,8 +361,8 @@ struct emitationcontroller : public tickcontroller, public stackcontroller
     }
 
     const int SquarePartIndex = (x & 1) + ((y & 1) << 1);
-    Square->SquarePartEmitationTick = Square->SquarePartEmitationTick
-				      & ~SquarePartTickMask[SquarePartIndex]
+    Square->SquarePartEmitationTick = (Square->SquarePartEmitationTick
+				       & ~SquarePartTickMask[SquarePartIndex])
 				      | ShiftedTick[SquarePartIndex];
 
     return false;
@@ -383,7 +383,7 @@ struct emitationcontroller : public tickcontroller, public stackcontroller
     }
     else
     {
-      Square->Flags = SquareFlags & ~ALLOW_EMITATION_CONTINUE | PERFECTLY_QUADRI_HANDLED;
+      Square->Flags = (SquareFlags & ~ALLOW_EMITATION_CONTINUE) | PERFECTLY_QUADRI_HANDLED;
       return false;
     }
   }
@@ -990,10 +990,12 @@ void lsquare::ApplyScript(const squarescript* SquareScript, room* Room)
     ChangeGLTerrain(GLTerrainScript->Instantiate());
 
     if(GLTerrainScript->IsInside())
+    {
       if(*GLTerrainScript->IsInside())
 	Flags |= INSIDE;
       else
 	Flags &= ~INSIDE;
+    }
   }
 
   const contentscript<olterrain>* OLTerrainScript = SquareScript->GetOTerrain();
@@ -1693,10 +1695,12 @@ void lsquare::GetHitByExplosion(const explosion* Explosion)
   int Damage = Explosion->Strength / (DistanceSquare + 1);
 
   if(Character && (Explosion->HurtNeutrals || (Explosion->Terrorist && Character->GetRelation(Explosion->Terrorist) == HOSTILE)))
+  {
     if(Character->IsPlayer())
       game::SetPlayerWasHurtByExplosion(true);
     else
       Character->GetHitByExplosion(Explosion, Damage);
+  }
 
   GetStack()->ReceiveDamage(Explosion->Terrorist, Damage >> 1, FIRE);
   GetStack()->ReceiveDamage(Explosion->Terrorist, Damage >> 1, PHYSICAL_DAMAGE);
@@ -1828,10 +1832,12 @@ int lsquare::GetDivineMaster() const
 void lsquare::DisplaySmokeInfo(festring& Msg) const
 {
   if(Smoke)
+  {
     if(!Smoke->Next)
       Msg << " A cloud of " << Smoke->GetGas()->GetName(false, false) << " surrounds the square.";
     else
       Msg << " A lot of gases hover over the square.";
+  }
 }
 
 void lsquare::ReceiveEarthQuakeDamage()
@@ -1988,7 +1994,23 @@ void lsquare::CalculateGroundBorderPartners()
   if(!GroundBorderPartnerTerrain)
     GroundBorderPartnerTerrain = new glterrain*[8];
 
-  std::sort(BorderPartner, BorderPartner + Index);
+  /* Sort the (at most 8) candidate border tiles by priority. A hand-rolled
+     insertion sort avoids a GCC -Warray-bounds false positive that std::sort
+     triggers on the small fixed-size array. */
+
+  for(int c = 1; c < Index; ++c)
+  {
+    groundborderpartner Key = BorderPartner[c];
+    int d = c;
+
+    while(d > 0 && Key < BorderPartner[d - 1])
+    {
+      BorderPartner[d] = BorderPartner[d - 1];
+      --d;
+    }
+
+    BorderPartner[d] = Key;
+  }
   truth Animated = false;
 
   for(int c = 0; c < Index; ++c)
@@ -2056,7 +2078,23 @@ void lsquare::CalculateOverBorderPartners()
   if(!OverBorderPartnerTerrain)
     OverBorderPartnerTerrain = new olterrain*[8];
 
-  std::sort(BorderPartner, BorderPartner + Index);
+  /* Sort the (at most 8) candidate border tiles by priority. A hand-rolled
+     insertion sort avoids a GCC -Warray-bounds false positive that std::sort
+     triggers on the small fixed-size array. */
+
+  for(int c = 1; c < Index; ++c)
+  {
+    overborderpartner Key = BorderPartner[c];
+    int d = c;
+
+    while(d > 0 && Key < BorderPartner[d - 1])
+    {
+      BorderPartner[d] = BorderPartner[d - 1];
+      --d;
+    }
+
+    BorderPartner[d] = Key;
+  }
   truth Animated = false;
 
   for(int c = 0; c < Index; ++c)
@@ -2078,7 +2116,7 @@ void lsquare::CalculateOverBorderPartners()
   OverBorderPartnerInfo |= Index << 24;
 
   if(OverBorderPartnerInfo & BORDER_PARTNER_ANIMATED)
-    int esko = esko = 2;
+    (void)0; // should never happen
 }
 
 void lsquare::RequestForGroundBorderPartnerUpdates()
@@ -2528,10 +2566,12 @@ void lsquare::CalculateSunLightLuminance(ulong SeenBitMask)
 
     for(int c = 0; c < 4; ++c, ShadowFlag <<= 1, SquarePartFlag <<= 1)
       if(SeenBitMask & *i & SquarePartFlag)
+      {
 	if(*i & ShadowFlag)
 	  ++S;
 	else
 	  ++L;
+      }
   }
 
   if(!L)
@@ -2586,9 +2626,9 @@ truth lsquare::AcidRain(const beamdata& Beam)
 truth lsquare::DetectMaterial(const material* Material) const
 {
   if(GLTerrain->DetectMaterial(Material)
-     || OLTerrain && OLTerrain->DetectMaterial(Material)
+     || (OLTerrain && OLTerrain->DetectMaterial(Material))
      || Stack->DetectMaterial(Material)
-     || Character && Character->DetectMaterial(Material))
+     || (Character && Character->DetectMaterial(Material)))
     return true;
 
   for(const fluid* F = Fluid; F; F = F->Next)

@@ -26,13 +26,14 @@ class festring
   /* It can be proven that the code works even if OwnsData is left
      uninitialized. However, Valgrind reports this as a possible error
      which is annoying */
-  festring() : Data(0), Size(0), OwnsData(false) { }
+  festring() : Data(0), Size(0), OwnsData(false), Reserved(0) { }
   explicit festring(sizetype);
   festring(sizetype, char);
   festring(const char* CStr)
-  : Data(const_cast<char*>(CStr)), Size(strlen(CStr)), OwnsData(false) { }
+  : Data(const_cast<char*>(CStr)), Size(strlen(CStr)), OwnsData(false),
+    Reserved(0) { }
   festring(const char* CStr, sizetype N)
-  : Data(const_cast<char*>(CStr)), Size(N), OwnsData(false) { }
+  : Data(const_cast<char*>(CStr)), Size(N), OwnsData(false), Reserved(0) { }
   festring(const festring&);
   ~festring();
   festring& Capitalize();
@@ -101,7 +102,7 @@ class festring
   void SlowAppend(char);
   void SlowAppend(const char*, sizetype);
   static char** IntegerMap;
-  static char* EmptyString;
+  static const char* EmptyString;
   char* Data;
   sizetype Size;
   sizetype OwnsData : 1;
@@ -133,7 +134,7 @@ inline festringpile operator+(const festring& S, const festringpile& What)
 
 inline festring::festring(const festring& Str)
 : Data(Str.Data), Size(Str.Size),
-  OwnsData(Str.OwnsData), Reserved(Str.Reserved)
+  OwnsData(Str.OwnsData), Reserved(Str.OwnsData ? Str.Reserved : 0)
 {
   if(Data && OwnsData)
     ++REFS(Data);

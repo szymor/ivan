@@ -130,10 +130,12 @@ void scrollofchangematerial::FinishReading(character* Reader)
     }
 
     if(Item.empty())
+    {
       if(game::TruthQuestion(CONST_S("Really cancel read? [y/N]")))
 	return;
       else
 	continue;
+    }
 
     if(!Item[0]->IsMaterialChangeable())
     {
@@ -1627,7 +1629,7 @@ truth itemcontainer::ReceiveDamage(character* Damager, int Damage, int Type, int
     if(IsLocked() && Damage > SV && RAND() % (100 * Damage / SV) >= 100)
     {
       SetIsLocked(false);
-      SetConfig(GetConfig()&~LOCK_BITS|BROKEN_LOCK);
+      SetConfig((GetConfig() & ~LOCK_BITS) | BROKEN_LOCK);
 
       if(CanBeSeenByPlayer())
 	ADD_MESSAGE("The %s's lock shatters to pieces.", GetNameSingular().CStr());
@@ -2346,6 +2348,7 @@ truth charmlyre::Apply(character* Charmer)
 	character* Char = Square->GetCharacter();
 
 	if(Char)
+	{
 	  if(Char->IsCharmable() && Char->CanHear())
 	  {
 	    if(Charmer->GetRelativeDanger(Char) > 4.0)
@@ -2364,6 +2367,7 @@ truth charmlyre::Apply(character* Charmer)
 	  }
 	  else
 	    ADD_MESSAGE("%s seems not affected.", Char->CHAR_NAME(DEFINITE));
+	}
       }
     }
   }
@@ -2610,10 +2614,12 @@ void scrollofhardenmaterial::FinishReading(character* Reader)
     }
 
     if(Item.empty())
+    {
       if(game::TruthQuestion(CONST_S("Really cancel read? [y/N]")))
 	return;
       else
 	continue;
+    }
 
     if(!Item[0]->IsMaterialChangeable())
     {
@@ -2759,10 +2765,12 @@ void scrollofgolemcreation::FinishReading(character* Reader)
       }
 
       if(MainPossible && SecPossible)
+      {
 	if(game::TruthQuestion(CONST_S("Use main material? [Y/n]"), YES))
 	  SecPossible = false;
 	else
 	  MainPossible = false;
+      }
 
       int MaterialConfig = MainPossible ? Main->GetConfig() : Sec->GetConfig();
       golem* Golem = golem::Spawn(MaterialConfig);

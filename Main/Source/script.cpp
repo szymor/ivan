@@ -270,7 +270,9 @@ void materialscript::Load(inputfile& SaveFile)
 {
   script::Load(SaveFile);
   Config = 0;
-  SaveFile >> (ushort&)Config;
+  ushort ConfigValue = 0;
+  SaveFile >> ConfigValue;
+  Config = ConfigValue;
 }
 
 void basecontentscript::InitDataMap()

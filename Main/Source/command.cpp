@@ -359,6 +359,7 @@ truth commandsystem::PickUp(character* Char)
   }
 
   if(PileVector.size() == 1)
+  {
     if(PileVector[0][0]->CanBePickedUp())
     {
       int Amount = PileVector[0].size();
@@ -388,6 +389,7 @@ truth commandsystem::PickUp(character* Char)
       ADD_MESSAGE("%s too large to pick up!", PileVector[0].size() == 1 ? "It is" : "They are");
       return false;
     }
+  }
 
   truth Success = false;
   stack::SetSelected(0);
@@ -779,10 +781,12 @@ truth commandsystem::Kick(character* Char)
     return false;
 
   if(Square->GetCharacter() && Char->GetRelation(Square->GetCharacter()) != HOSTILE)
+  {
     if(!game::TruthQuestion(CONST_S("This might cause a hostile reaction. Are you sure? [y/N]")))
       return false;
     else
       Char->Hostility(Square->GetCharacter());
+  }
 
   Char->Kick(Square, Dir);
   return true;

@@ -26,6 +26,8 @@
  * 3. class construction macros used in multiple .h files
  */
 
+#include <cstdint>
+
 #include "typedef.h"
 
 const int MapMoveX[9] = { -1, 0, 1, -1, 1, -1, 0, 1, 0 };
@@ -191,7 +193,19 @@ inline int GetMinColor24(col24 Color)
 #define ZERO_POOLS 1
 #define RAND_ALLOC 2
 
-#define REFS(ptr) reinterpret_cast<ulong*>(ptr)[-1]
+/* The reference count of a refcounted buffer lives in a ulong right before
+   the buffer itself (festring/fearray allocate sizeof(ulong) extra bytes).
+   The pointer is routed through an integer so that the compiler cannot reason
+   about the object the pointer happens to point to (e.g. a string literal)
+   and does not warn about the stride-back access. */
+inline ulong& RefCount(void* Ptr)
+{
+  const std::uintptr_t ByteOffset =
+    reinterpret_cast<std::uintptr_t>(Ptr) - sizeof(ulong);
+  return *reinterpret_cast<ulong*>(ByteOffset);
+}
+
+#define REFS(ptr) RefCount(ptr)
 
 #define SKIP_FIRST 1
 #define ALLOW_END_FAILURE 2

@@ -564,10 +564,12 @@ truth level::MakeRoom(const roomscript* RoomScript)
 	  Square->ChangeGLTerrain(GTerrainScript->Instantiate());
 
 	  if(GTerrainScript->IsInside())
+	  {
 	    if(*GTerrainScript->IsInside())
 	      Square->Flags |= INSIDE;
 	    else
 	      Square->Flags &= ~INSIDE;
+	  }
 	}
     }
   }
@@ -923,6 +925,7 @@ truth level::DrawExplosion(const explosion* Explosion) const
   v2 PicPos = StrengthPicPos[Explosion->Size];
 
   if(BPos.X < 0)
+  {
     if(BPos.X + SizeVect.X <= 0)
       return false;
     else
@@ -931,8 +934,10 @@ truth level::DrawExplosion(const explosion* Explosion) const
       SizeVect.X += BPos.X;
       BPos.X = 0;
     }
+  }
 
   if(BPos.Y < 0)
+  {
     if(BPos.Y + SizeVect.Y <= 0)
       return false;
     else
@@ -941,6 +946,7 @@ truth level::DrawExplosion(const explosion* Explosion) const
       SizeVect.Y += BPos.Y;
       BPos.Y = 0;
     }
+  }
 
   if(BPos.X >= RES.X || BPos.Y >= RES.Y)
     return false;
@@ -1016,10 +1022,12 @@ int level::TriggerExplosions(int MinIndex)
   }
 
   if(NotSeen)
+  {
     if(NotSeen == 1)
       ADD_MESSAGE("You hear an explosion.");
     else
       ADD_MESSAGE("You hear explosions.");
+  }
 
   game::DrawEverythingNoBlit();
   truth Drawn = false;
@@ -1233,7 +1241,6 @@ void level::GenerateRectangularRoom(std::vector<v2>& OKForDoor, std::vector<v2>&
   }
 
   int Room = RoomClass->GetIndex();
-  long Counter = 0;
   truth AllowLanterns = *RoomScript->GenerateLanterns();
   truth AllowWindows = *RoomScript->GenerateWindows();
   int x, y;
@@ -1243,7 +1250,7 @@ void level::GenerateRectangularRoom(std::vector<v2>& OKForDoor, std::vector<v2>&
   if(Shape == ROUND_CORNERS && (Size.X < 5 || Size.Y < 5)) /* No weird shapes this way. */
     Shape = RECTANGLE;
 
-  for(x = Pos.X; x < Pos.X + Size.X; ++x, Counter += 2)
+  for(x = Pos.X; x < Pos.X + Size.X; ++x)
   {
     if(Shape == ROUND_CORNERS)
     {
@@ -1287,7 +1294,7 @@ void level::GenerateRectangularRoom(std::vector<v2>& OKForDoor, std::vector<v2>&
 
   game::BusyAnimation();
 
-  for(y = Pos.Y + 1; y < Pos.Y + Size.Y - 1; ++y, Counter += 2)
+  for(y = Pos.Y + 1; y < Pos.Y + Size.Y - 1; ++y)
   {
     CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), Pos.X, y, Room, Flags);
     CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), Pos.X + Size.X - 1, y, Room, Flags);
@@ -1310,11 +1317,10 @@ void level::GenerateRectangularRoom(std::vector<v2>& OKForDoor, std::vector<v2>&
 
   GTerrain = RoomScript->GetFloorSquare()->GetGTerrain();
   OTerrain = RoomScript->GetFloorSquare()->GetOTerrain();
-  Counter = 0;
   Flags = (GTerrain->IsInside() ? *GTerrain->IsInside() : *RoomScript->IsInside()) ? INSIDE : 0;
 
   for(x = Pos.X + 1; x < Pos.X + Size.X - 1; ++x)
-    for(y = Pos.Y + 1; y < Pos.Y + Size.Y - 1; ++y, ++Counter)
+    for(y = Pos.Y + 1; y < Pos.Y + Size.Y - 1; ++y)
     {
       /* if not in the corner */
 
@@ -1780,12 +1786,11 @@ void level::GenerateDungeon(int Index)
   EnchantmentPlusChance = *LevelScript->GetEnchantmentPlusChanceBase() + *LevelScript->GetEnchantmentPlusChanceDelta() * Index;
   const contentscript<glterrain>* GTerrain = LevelScript->GetFillSquare()->GetGTerrain();
   const contentscript<olterrain>* OTerrain = LevelScript->GetFillSquare()->GetOTerrain();
-  long Counter = 0;
   int x;
   game::BusyAnimation();
 
   for(x = 0; x < XSize; ++x)
-    for(int y = 0; y < YSize; ++y, ++Counter)
+    for(int y = 0; y < YSize; ++y)
       Map[x][y]->SetLTerrain(GTerrain->Instantiate(), OTerrain->Instantiate());
 
   uint c;
@@ -2254,7 +2259,7 @@ node* level::FindRoute(v2 From, v2 To, const std::set<v2>& Illegal, int Required
   Node->Processed = true;
   Node->Distance = 0;
   Node->Diagonals = 0;
-  nodequeue NodeQueue;
+  static nodequeue NodeQueue;
   NodeQueue.push(nodepointerstorer(Node));
   node::NodeQueue = &NodeQueue;
 
@@ -2445,7 +2450,7 @@ void level::ForceEmitterEmitation(const emittervector& Emitter, const sunemitter
 
     for(sunemittervector::const_iterator i = SunEmitter.begin(); i != SunEmitter.end(); ++i)
     {
-      ulong ID = *i & ~(EMITTER_SHADOW_BITS|EMITTER_SQUARE_PART_BITS) | RE_SUN_EMITATED, SourceFlags;
+      ulong ID = ((*i & ~(EMITTER_SHADOW_BITS | EMITTER_SQUARE_PART_BITS)) | RE_SUN_EMITATED), SourceFlags;
       int X, Y;
 
       if(ID & ID_X_COORDINATE)
@@ -2491,9 +2496,9 @@ struct loscontroller : public tickcontroller, public stackcontroller
     }
 
     const int SquarePartIndex = (x & 1) + ((y & 1) << 1);
-    Square->SquarePartLastSeen = Square->SquarePartLastSeen
-				 & ~SquarePartTickMask[SquarePartIndex]
-				 | ShiftedTick[SquarePartIndex];
+    Square->SquarePartLastSeen = (Square->SquarePartLastSeen
+				 & ~SquarePartTickMask[SquarePartIndex])
+				| ShiftedTick[SquarePartIndex];
     return false;
   }
   static ulong& GetTickReference(int X, int Y)

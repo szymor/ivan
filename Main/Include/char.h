@@ -729,6 +729,12 @@ class character : public entity, public id
   void PrintEndPanicMessage() const;
   void CheckPanic(int);
   character* DuplicateToNearestSquare(character*, ulong = 0);
+  // These deliberately hide entity's (material*)-taking versions: a character
+  // spoils as a whole, not per material. Bring the base overloads back into
+  // scope anyway so entity::SignalSpoil(material*) stays reachable through a
+  // character*.
+  using entity::SignalSpoil;
+  using entity::SignalSpoilLevelChange;
   void SignalSpoil();
   void SignalSpoilLevelChange();
   virtual truth UseMaterialAttributes() const = 0;

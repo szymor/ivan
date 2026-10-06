@@ -122,7 +122,7 @@ template <class type> struct fastscriptmember : public scriptmemberbase
   virtual void Replace(scriptmemberbase&);
   virtual void Save(outputfile&) const;
   virtual void Load(inputfile&);
-  type Member NO_ALIGNMENT;
+  type Member;
 };
 
 #ifdef VC
@@ -237,7 +237,7 @@ class contentscript<item> : public contentscripttemplate<item>
 {
  public:
   typedef contentscript<item> scripttype;
-  contentscript<item>();
+  contentscript();
   item* InstantiateBasedOnMaterial(int, int = 0) const;
   item* Instantiate(int = 0) const;
   static void InitDataMap();
@@ -267,7 +267,7 @@ class contentscript<character> : public contentscripttemplate<character>
 {
  public:
   typedef contentscript<character> scripttype;
-  contentscript<character>();
+  contentscript();
   character* Instantiate(int = 0) const;
   static void InitDataMap();
  protected:
@@ -299,7 +299,7 @@ class contentscript<olterrain> : public contentscripttemplate<olterrain>
 {
  public:
   typedef contentscript<olterrain> scripttype;
-  contentscript<olterrain>();
+  contentscript();
   olterrain* Instantiate(int = 0) const;
   static void InitDataMap();
  protected:

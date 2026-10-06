@@ -87,6 +87,7 @@ truth door::Open(character* Opener)
 truth door::Close(character* Closer)
 {
   if(Closer->IsPlayer())
+  {
     if(Opened)
     {
       if(RAND() % 20 < Closer->GetAttribute(ARM_STRENGTH))
@@ -102,6 +103,7 @@ truth door::Close(character* Closer)
       ADD_MESSAGE("The door is already closed, %s.", game::Insult());
       return false;
     }
+  }
 
   Closer->DexterityAction(Closer->OpenMultiplier() * 5);
   return true;
@@ -373,6 +375,7 @@ truth fountain::Drink(character* Drinker)
 
 	  break;
 	}
+	[[fallthrough]];
        case 1:
 	ADD_MESSAGE("The water tasted very good.");
 	Drinker->EditNP(2500);
@@ -522,6 +525,7 @@ truth fountain::Drink(character* Drinker)
 
 	  break;
 	}
+	[[fallthrough]];
        case 7:
 	{
 	  if(!RAND_N(2))
@@ -557,6 +561,7 @@ truth fountain::Drink(character* Drinker)
 	    break;
 	  }
 	}
+	[[fallthrough]];
        default:
 	ADD_MESSAGE("The water tastes good.");
 	Drinker->EditNP(500);
@@ -900,6 +905,7 @@ truth stairs::Enter(truth DirectionUp) const
   }
 
   if(GetConfig() == OREE_LAIR_EXIT)
+  {
     if(PLAYER->HasGoldenEagleShirt())
     {
       ADD_MESSAGE("Somehow you get the feeling you cannot return.");
@@ -913,6 +919,7 @@ truth stairs::Enter(truth DirectionUp) const
       PLAYER->EditAP(-1000);
       return true;
     }
+  }
 
   if(GetConfig() == DARK_LEVEL)
   {
@@ -1070,10 +1077,12 @@ void door::ReceiveDamage(character* Villain, int Damage, int)
     if(HP <= 0)
     {
       if(CanBeSeenByPlayer())
+      {
 	if(LockBreaks)
 	  ADD_MESSAGE("The door breaks and its lock is destroyed.");
 	else
 	  ADD_MESSAGE("The door breaks.");
+      }
 
       room* Room = GetRoom();
       Break();

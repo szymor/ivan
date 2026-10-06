@@ -767,6 +767,7 @@ void item::Be()
   MainMaterial->Be();
 
   if(Exists() && LifeExpectancy)
+  {
     if(LifeExpectancy == 1)
     {
       if(CanBeSeenByPlayer())
@@ -780,6 +781,7 @@ void item::Be()
     }
     else
       --LifeExpectancy;
+  }
 }
 
 int item::GetOfferValue(int Receiver) const
@@ -1004,7 +1006,7 @@ void item::PostProcessForBone()
   else
   {
     if(game::SearchItem(BI->second))
-      int esko = esko = 2;
+      (void)0; // should never happen
 
     ID = BI->second;
     game::AddItemID(this, ID);
@@ -1274,10 +1276,12 @@ void item::TryToRust(long LiquidModifier)
   if(MainMaterial->TryToRust(LiquidModifier))
   {
     if(CanBeSeenByPlayer())
+    {
       if(MainMaterial->GetRustLevel() == NOT_RUSTED)
 	ADD_MESSAGE("%s rusts.", CHAR_NAME(DEFINITE));
       else
 	ADD_MESSAGE("%s rusts more.", CHAR_NAME(DEFINITE));
+    }
 
     MainMaterial->SetRustLevel(MainMaterial->GetRustLevel() + 1);
   }

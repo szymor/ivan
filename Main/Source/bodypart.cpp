@@ -270,6 +270,7 @@ truth bodypart::ReceiveDamage(character* Damager, int Damage, int Type, int)
     if(HP <= 0)
       return true;
     else if(Master->IsPlayer())
+    {
       if(HP == 1 && BHP > 1)
       {
 	if(IsAlive())
@@ -290,6 +291,7 @@ truth bodypart::ReceiveDamage(character* Damager, int Damage, int Type, int)
 	if(Master->BodyPartIsVital(GetBodyPartIndex()))
 	  game::AskForKeyPress(CONST_S("Vital bodypart in danger! [press any key to continue]"));
       }
+    }
 
     SignalPossibleUsabilityChange();
   }
@@ -905,7 +907,7 @@ void arm::Hit(character* Enemy, v2 HitPos, int Direction, truth ForceHit)
 
     if(THW && GetPairArm())
       GetPairArm()->EditExperience(ARM_STRENGTH, StrExp, 1 << 9);
-
+    [[fallthrough]];
    case HAS_DODGED:
     EditExperience(DEXTERITY, DexExp, 1 << 9);
 
@@ -1717,10 +1719,12 @@ void bodypart::Be()
       MainMaterial->Be();
 
     if(Exists() && LifeExpectancy)
+    {
       if(LifeExpectancy == 1)
 	Master->SignalDisappearance();
       else
 	--LifeExpectancy;
+    }
   }
   else
   {
@@ -3271,7 +3275,7 @@ void bodypart::SetIsInfectedByLeprosy(truth What)
 void bodypart::SetSparkleFlags(int What)
 {
   const int S = SPARKLING_B|SPARKLING_C|SPARKLING_D;
-  Flags = Flags & ~(S << BODYPART_SPARKLE_SHIFT) | ((What & S) << BODYPART_SPARKLE_SHIFT);
+  Flags = (Flags & ~(S << BODYPART_SPARKLE_SHIFT)) | ((What & S) << BODYPART_SPARKLE_SHIFT);
 }
 
 truth arm::IsAnimated() const

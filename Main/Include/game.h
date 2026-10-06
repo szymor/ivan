@@ -385,7 +385,7 @@ class game
   static v2 GetSunLightDirectionVector();
   static int CalculateMinimumEmitationRadius(col24);
   static ulong IncreaseSquarePartEmitationTicks();
-  static const int GetLargeMoveDirection(int I) { return LargeMoveDirection[I]; }
+  static int GetLargeMoveDirection(int I) { return LargeMoveDirection[I]; }
   static void Wish(character*, const char*, const char*);
   static festring DefaultQuestion(festring, festring&, stringkeyhandler = 0);
   static void GetTime(ivantime&);

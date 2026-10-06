@@ -61,7 +61,7 @@ class square
   void DecStaticAnimatedEntities()
   {
     if(!StaticAnimatedEntities)
-      int esko = esko = 2;
+      (void)0; /* should never happen */
 
     --StaticAnimatedEntities;
     --AnimatedEntities;

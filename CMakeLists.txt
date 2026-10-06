@@ -80,6 +80,7 @@ if(MSVC)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   # felibdef.h uses this for NO_ALIGNMENT / NO_RETURN / LIKE_PRINTF.
   target_compile_definitions(ivan_build_flags INTERFACE GCC)
+  target_compile_options(ivan_build_flags INTERFACE -Wall -Wextra)
 endif()
 
 # ------------------------------------------------------------------ targets ---

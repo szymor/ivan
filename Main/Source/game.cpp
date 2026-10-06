@@ -164,34 +164,34 @@ olterrain* game::MonsterPortal;
 
 void game::AddCharacterID(character* Char, ulong ID) {
   if(CharacterIDMap.find(ID) != CharacterIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
   CharacterIDMap.insert(std::pair<ulong, character*>(ID, Char));
 }
 void game::RemoveCharacterID(ulong ID) {
   if(CharacterIDMap.find(ID) == CharacterIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
   CharacterIDMap.erase(CharacterIDMap.find(ID));
 }
 void game::AddItemID(item* Item, ulong ID) {
   if(ItemIDMap.find(ID) != ItemIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
   ItemIDMap.insert(std::pair<ulong, item*>(ID, Item));
 }
 void game::RemoveItemID(ulong ID)
 {
   if(ID && ItemIDMap.find(ID) == ItemIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
 
   if(ID) ItemIDMap.erase(ItemIDMap.find(ID));
 }
 void game::UpdateItemID(item* Item, ulong ID) {
   if(ItemIDMap.find(ID) == ItemIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
   ItemIDMap.find(ID)->second = Item;
 }
 void game::AddTrapID(entity* Trap, ulong ID) {
   if(TrapIDMap.find(ID) != TrapIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
 
   if(ID)
     TrapIDMap.insert(std::pair<ulong, entity*>(ID, Trap));
@@ -199,13 +199,13 @@ void game::AddTrapID(entity* Trap, ulong ID) {
 void game::RemoveTrapID(ulong ID)
 {
   if(ID && TrapIDMap.find(ID) == TrapIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
 
   if(ID) TrapIDMap.erase(TrapIDMap.find(ID));
 }
 void game::UpdateTrapID(entity* Trap, ulong ID) {
   if(TrapIDMap.find(ID) == TrapIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
   TrapIDMap.find(ID)->second = Trap;
 }
 const dangermap& game::GetDangerMap() { return DangerMap; }
@@ -709,16 +709,20 @@ truth game::OnScreen(v2 Pos)
 void game::DrawEverythingNoBlit(truth AnimationDraw)
 {
   if(LOSUpdateRequested && Player->IsEnabled())
+  {
     if(!IsInWilderness())
       GetCurrentLevel()->UpdateLOS();
     else
       GetWorldMap()->UpdateLOS();
+  }
 
   if(OnScreen(CursorPos))
+  {
     if(!IsInWilderness() || CurrentWSquareMap[CursorPos.X][CursorPos.Y]->GetLastSeen() || GetSeeWholeMapCheatMode())
       CurrentArea->GetSquare(CursorPos)->SendStrongNewDrawRequest();
     else
       DOUBLE_BUFFER->Fill(CalculateScreenCoordinates(CursorPos), TILE_V2, 0);
+  }
 
   globalwindowhandler::UpdateTick();
   GetCurrentArea()->Draw(AnimationDraw);
@@ -1496,10 +1500,12 @@ void game::LookHandler(v2 CursorPos)
       LSquare->DisplaySmokeInfo(Msg);
 
       if(LSquare->HasEngravings() && LSquare->IsTransparent())
+      {
 	if(LSquare->EngravingsCanBeReadByPlayer() || GetSeeWholeMapCheatMode())
 	  LSquare->DisplayEngravedInfo(Msg);
 	else
 	  Msg << " Something has been engraved here.";
+      }
     }
   }
   else
@@ -1595,6 +1601,7 @@ v2 game::LookKeyHandler(v2 CursorPos, int Key)
   {
    case 'i':
     if(!IsInWilderness())
+    {
       if(Square->CanBeSeenByPlayer() || CursorPos == Player->GetPos() || GetSeeWholeMapCheatMode())
       {
 	lsquare* LSquare = GetCurrentLevel()->GetLSquare(CursorPos);
@@ -1607,6 +1614,7 @@ v2 game::LookKeyHandler(v2 CursorPos, int Key)
       }
       else
 	ADD_MESSAGE("You should perhaps move a bit closer.");
+    }
 
     break;
    case 'c':
@@ -2129,7 +2137,7 @@ ulong game::CreateNewCharacterID(character* NewChar)
   ulong ID = NextCharacterID++;
 
   if(CharacterIDMap.find(ID) != CharacterIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
 
   CharacterIDMap.insert(std::pair<ulong, character*>(ID, NewChar));
   return ID;
@@ -2140,7 +2148,7 @@ ulong game::CreateNewItemID(item* NewItem)
   ulong ID = NextItemID++;
 
   if(ItemIDMap.find(ID) != ItemIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
 
   if(NewItem)
     ItemIDMap.insert(std::pair<ulong, item*>(ID, NewItem));
@@ -2153,7 +2161,7 @@ ulong game::CreateNewTrapID(entity* NewTrap)
   ulong ID = NextTrapID++;
 
   if(TrapIDMap.find(ID) != TrapIDMap.end())
-    int esko = esko = 2;
+    (void)0; // should never happen
 
   if(NewTrap)
     TrapIDMap.insert(std::pair<ulong, entity*>(ID, NewTrap));
@@ -2761,7 +2769,7 @@ void game::CharacterEntryDrawer(bitmap* Bitmap, v2 Pos, uint I)
 void game::GodEntryDrawer(bitmap* Bitmap, v2 Pos, uint I)
 {
   blitdata B = { Bitmap,
-		 { I << 4, 0 },
+		 { int(I << 4), 0 },
 		 { Pos.X, Pos.Y },
 		 { TILE_SIZE, TILE_SIZE },
 		 { 0 },
@@ -3408,10 +3416,10 @@ truth game::CommandAll()
 
     ulong OldC = Char->GetCommandFlags();
     ulong ConstC = Char->GetConstantCommandFlags();
-    ulong ThisC = NewFlags
+    ulong ThisC = (NewFlags
 		  & Char->GetPossibleCommandFlags()
-		  & ~(ConstC|VaryFlags)
-		  | (OldC & (ConstC|VaryFlags));
+		  & ~(ConstC|VaryFlags))
+		| (OldC & (ConstC|VaryFlags));
 
     if(ThisC != OldC)
       Change = true;

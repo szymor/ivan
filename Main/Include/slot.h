@@ -26,6 +26,7 @@ class slot
 {
  public:
   slot() : Item(0) { }
+  virtual ~slot() { }
   virtual void Empty() = 0;
   virtual void Save(outputfile&) const;
   virtual void Load(inputfile&);

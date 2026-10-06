@@ -23,6 +23,7 @@ class weaponskill
 {
  public:
   weaponskill() : Level(0), Hits(0), HitCounter(0) { }
+  virtual ~weaponskill() { }
   int GetLevel() const { return Level; }
   int GetHits() const { return Hits; }
   truth Tick();

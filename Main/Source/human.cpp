@@ -425,6 +425,7 @@ truth humanoid::Hit(character* Enemy, v2 HitPos, int Direction, truth ForceHit)
       msgsystem::LeaveBigMessageMode();
       return true;
     }
+    [[fallthrough]];
    case USE_LEGS:
     if(HasTwoUsableLegs())
     {
@@ -438,6 +439,7 @@ truth humanoid::Hit(character* Enemy, v2 HitPos, int Direction, truth ForceHit)
       msgsystem::LeaveBigMessageMode();
       return true;
     }
+    [[fallthrough]];
    case USE_HEAD:
     if(GetHead())
     {
@@ -447,6 +449,7 @@ truth humanoid::Hit(character* Enemy, v2 HitPos, int Direction, truth ForceHit)
       msgsystem::LeaveBigMessageMode();
       return true;
     }
+    [[fallthrough]];
    default:
     if(IsPlayer())
       ADD_MESSAGE("You are currently quite unable to damage anything.");
@@ -1547,7 +1550,7 @@ void humanoid::DrawSilhouette(truth AnimationDraw) const
 		  { 0, 0 },
 		  { 0, 0 },
 		  { TILE_SIZE, TILE_SIZE },
-		  { ivanconfig::GetContrastLuminance() },
+		  { int(ivanconfig::GetContrastLuminance()) },
 		  TRANSPARENT_COLOR,
 		  ALLOW_ANIMATE };
 
@@ -3024,10 +3027,12 @@ void guard::GetAICommand()
   if(WayPoints.size() && !IsGoingSomeWhere())
   {
     if(GetPos() == WayPoints[NextWayPoint])
+    {
       if(NextWayPoint < WayPoints.size() - 1)
 	++NextWayPoint;
       else
 	NextWayPoint = 0;
+    }
 
     GoingTo = WayPoints[NextWayPoint];
   }
@@ -3234,6 +3239,7 @@ void darkmage::GetAICommand()
 	    break;
 	  }
 	}
+	[[fallthrough]];
        case 4:
        case 5: Square->DrawParticles(RED); Square->Slow(Beam); break;
        case 6: Square->DrawParticles(RED); Square->Teleport(Beam); break;
@@ -3298,6 +3304,7 @@ void darkmage::GetAICommand()
 	RandomFriend->DuplicateToNearestSquare(this, CHANGE_TEAM);
 	return;
       }
+      [[fallthrough]];
      case ELDER:
       if(RAND() & 1)
 	Square->Invisibility(Beam);
@@ -3945,10 +3952,12 @@ void necromancer::GetAICommand()
     }
 
     if(Interrupt)
+    {
       if(CanBeSeenByPlayer())
 	NearestEnemy->DeActivateVoluntaryAction(CONST_S("The spell of ") + GetName(DEFINITE) + CONST_S(" interrupts you."));
       else
 	NearestEnemy->DeActivateVoluntaryAction(CONST_S("The spell interrupts you."));
+    }
 
     return;
   }
@@ -4665,12 +4674,14 @@ void humanoid::ModifySituationDanger(double& Danger) const
   switch(GetUsableArms())
   {
    case 0: Danger *= 10;
+    [[fallthrough]];
    case 1: Danger *= 2;
   }
 
   switch(GetUsableLegs())
   {
    case 0: Danger *= 10;
+    [[fallthrough]];
    case 1: Danger *= 2;
   }
 }

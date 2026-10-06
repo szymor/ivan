@@ -238,7 +238,7 @@ character* protosystem::CreateMonster(int MinDanger, int MaxDanger, int SpecialF
   std::vector<configid> Possible;
   character* Monster = 0;
 
-  for(int c = 0; !Monster; ++c)
+  for(;;)
   {
     for(int Type = 1; Type < protocontainer<character>::GetSize(); ++Type)
     {
@@ -349,6 +349,7 @@ template <class type> std::pair<const typename type::prototype*, int> SearchForP
 	if(Correct == Best)
 	  Conflict = true;
 	else if(Correct.first > Best.first || (Correct.first == Best.first && Correct.second < Best.second))
+	{
 	  if(ConfigData[c]->CanBeWished || game::WizardModeIsActive())
 	  {
 	    ID.first = Proto;
@@ -358,6 +359,7 @@ template <class type> std::pair<const typename type::prototype*, int> SearchForP
 	  }
 	  else
 	    Illegal = true;
+	}
       }
   }
 
@@ -421,6 +423,7 @@ material* protosystem::CreateMaterial(const festring& What, long Volume, truth O
 
     for(int c2 = 1; c2 < ConfigSize; ++c2)
       if(ConfigData[c2]->NameStem == What)
+      {
 	if(ConfigData[c2]->CommonFlags & CAN_BE_WISHED
 	   || game::WizardModeIsActive())
 	  return ConfigData[c2]->ProtoType->Spawn(ConfigData[c2]->Config, Volume);
@@ -429,6 +432,7 @@ material* protosystem::CreateMaterial(const festring& What, long Volume, truth O
 	  ADD_MESSAGE("You hear a booming voice: \"No, mortal! This will not be done!\"");
 	  return 0;
 	}
+      }
   }
 
   if(Output)

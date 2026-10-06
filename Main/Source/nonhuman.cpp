@@ -333,6 +333,7 @@ void nonhumanoid::UnarmedHit(character* Enemy, v2 HitPos, int Direction, truth F
    case HAS_DIED:
    case DID_NO_DAMAGE:
     EditExperience(ARM_STRENGTH, 150, 1 << 8);
+    [[fallthrough]];
    case HAS_DODGED:
     EditExperience(DEXTERITY, 75, 1 << 8);
   }
@@ -805,10 +806,12 @@ void floatingeye::GetAICommand()
   if(WayPoints.size() && !IsGoingSomeWhere())
   {
     if(GetPos() == WayPoints[NextWayPoint])
+    {
       if(NextWayPoint < WayPoints.size() - 1)
 	++NextWayPoint;
       else
 	NextWayPoint = 0;
+    }
 
     GoingTo = WayPoints[NextWayPoint];
   }
@@ -1943,8 +1946,8 @@ int blinkdog::TakeHit(character* Enemy, item* Weapon, bodypart* EnemyBodyPart, v
 
     if((RAND() & 1 && StateIsActivated(PANIC))
        || (!(RAND() & 3) && IsInBadCondition())
-       || !(RAND() & 15));
-    MonsterTeleport("terrified yelp");
+       || !(RAND() & 15))
+      MonsterTeleport("terrified yelp");
   }
 
   return Return;
@@ -2127,6 +2130,7 @@ void mysticfrog::GetAICommand()
      case 3:
      case 4:
      case 5: Square->DrawParticles(RED); if(NearestEnemy->TeleportRandomItem(GetConfig() == DARK)) break;
+     [[fallthrough]];
      case 6:
      case 7:
      case 8:

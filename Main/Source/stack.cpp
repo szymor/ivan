@@ -196,8 +196,8 @@ void stack::Save(outputfile& SaveFile) const
 
 void stack::Load(inputfile& SaveFile)
 {
-  int SavedItems = 0;
-  SaveFile >> (ushort&)SavedItems;
+  ushort SavedItems = 0;
+  SaveFile >> SavedItems;
 
   for(int c = 0; c < SavedItems; ++c)
   {
@@ -251,7 +251,7 @@ void stack::BeKicked(character* Kicker, int KickDamage, int Direction)
       if(Item2)
       {
 	if(!Item2->Exists() || Item2->GetPos() != GetPos())
-	  int esko = esko = 2;
+	  (void)0; // should never happen
 
 	Item2->Fly(Kicker, Direction, KickDamage * 3);
       }
@@ -488,10 +488,12 @@ int stack::DrawContents(itemvector& ReturnVector, stack* MergeStack,
   int Pos = 0;
 
   if(Flags & NONE_AS_CHOICE)
+  {
     if(!Selected)
       return 0;
     else
       ++Pos;
+  }
 
   if(MergeStack)
   {
@@ -581,6 +583,7 @@ int stack::SearchChosen(itemvector& ReturnVector,
 
   for(uint p = 0; p < PileVector.size(); ++p)
     if(Pos++ == Chosen)
+    {
       if(Flags & NO_MULTI_SELECT)
       {
 	int Amount = (Flags & SELECT_PAIR
@@ -604,6 +607,7 @@ int stack::SearchChosen(itemvector& ReturnVector,
 	ReturnVector.assign(PileVector[p].end() - Amount, PileVector[p].end());
 	return -1;
       }
+    }
 
   return Pos;
 }
@@ -904,8 +908,8 @@ item* stack::GetBottomSideItem(const character* Char,
 			       truth ForceIgnoreVisibility) const
 {
   for(stackiterator i = GetBottom(); i.HasItem(); ++i)
-    if(i->GetSquarePosition() == RequiredSquarePosition
-       && (Flags & HIDDEN) || ForceIgnoreVisibility || i->CanBeSeenBy(Char))
+    if((i->GetSquarePosition() == RequiredSquarePosition
+	&& (Flags & HIDDEN)) || ForceIgnoreVisibility || i->CanBeSeenBy(Char))
       return *i;
 
   return 0;

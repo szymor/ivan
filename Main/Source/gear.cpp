@@ -353,10 +353,12 @@ void meleeweapon::SignalSpoil(material* Material)
   if(Material == MainMaterial)
   {
     if(CanBeSeenByPlayer())
+    {
       if(SecondaryMaterial->GetVolume())
 	ADD_MESSAGE("The edge of %s spoils.", GetExtendedDescription().CStr());
       else
 	ADD_MESSAGE("%s spoils.", GetExtendedDescription().CStr());
+    }
 
     RemoveMainMaterial();
   }

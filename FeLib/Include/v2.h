@@ -35,7 +35,7 @@ struct podv2
 
 struct v2
 {
-  v2() { }
+  v2() : X(0), Y(0) { }
   v2(int X, int Y) : X(X), Y(Y) { }
   v2 operator+(v2 V) const { return v2(X + V.X, Y + V.Y); }
   v2& operator+=(v2 V) { X += V.X; Y += V.Y; return *this; }
@@ -70,7 +70,7 @@ struct v2
   truth Is0() const { return X == 0 && Y == 0; }
   operator packv2() const
   {
-    packv2 V = { X, Y };
+    packv2 V = { static_cast<short>(X), static_cast<short>(Y) };
     return V;
   }
   operator podv2() const

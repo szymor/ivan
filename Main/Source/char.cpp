@@ -25,7 +25,7 @@
 
 struct statedata
 {
-  char* Description;
+  const char* Description;
   int Flags;
   void (character::*PrintBeginMessage)() const;
   void (character::*PrintEndMessage)() const;
@@ -139,7 +139,7 @@ statedata StateData[STATES] =
     &character::PoisonedSituationDangerModifier
   }, {
     "Teleporting",
-    SECRET|RANDOMIZABLE&~(SRC_MUSHROOM|SRC_GOOD),
+    SECRET | (RANDOMIZABLE & ~(SRC_MUSHROOM | SRC_GOOD)),
     &character::PrintBeginTeleportMessage,
     &character::PrintEndTeleportMessage,
     0,
@@ -149,7 +149,7 @@ statedata StateData[STATES] =
     0
   }, {
     "Polymorphing",
-    SECRET|RANDOMIZABLE&~(SRC_MUSHROOM|SRC_GOOD),
+    SECRET | (RANDOMIZABLE & ~(SRC_MUSHROOM | SRC_GOOD)),
     &character::PrintBeginPolymorphMessage,
     &character::PrintEndPolymorphMessage,
     0,
@@ -179,7 +179,7 @@ statedata StateData[STATES] =
     &character::PanicSituationDangerModifier
   }, {
     "Confused",
-    SECRET|RANDOMIZABLE&~(DUR_PERMANENT|SRC_GOOD),
+    SECRET | (RANDOMIZABLE & ~(DUR_PERMANENT | SRC_GOOD)),
     &character::PrintBeginConfuseMessage,
     &character::PrintEndConfuseMessage,
     0,
@@ -189,7 +189,7 @@ statedata StateData[STATES] =
     &character::ConfusedSituationDangerModifier
   }, {
     "Parasitized",
-    SECRET|RANDOMIZABLE&~DUR_TEMPORARY,
+    SECRET | (RANDOMIZABLE & ~DUR_TEMPORARY),
     &character::PrintBeginParasitizedMessage,
     &character::PrintEndParasitizedMessage,
     0,
@@ -209,7 +209,7 @@ statedata StateData[STATES] =
     0
   }, {
     "GasImmunity",
-    SECRET|RANDOMIZABLE&~(SRC_GOOD|SRC_EVIL),
+    SECRET | (RANDOMIZABLE & ~(SRC_GOOD | SRC_EVIL)),
     &character::PrintBeginGasImmunityMessage,
     &character::PrintEndGasImmunityMessage,
     0,
@@ -229,7 +229,7 @@ statedata StateData[STATES] =
     0
   }, {
     "Leprosy",
-    SECRET|RANDOMIZABLE&~DUR_TEMPORARY,
+    SECRET | (RANDOMIZABLE & ~DUR_TEMPORARY),
     &character::PrintBeginLeprosyMessage,
     &character::PrintEndLeprosyMessage,
     &character::BeginLeprosy,
@@ -528,6 +528,7 @@ int character::TakeHit(character* Enemy, item* Weapon,
   {
    case FAINTING:
     ToHitValue *= 0.50;
+    [[fallthrough]];
    case EXHAUSTED:
     ToHitValue *= 0.75;
   }
@@ -536,6 +537,7 @@ int character::TakeHit(character* Enemy, item* Weapon,
   {
    case FAINTING:
     DodgeValue *= 0.50;
+    [[fallthrough]];
    case EXHAUSTED:
     DodgeValue *= 0.75;
   }
@@ -1171,6 +1173,7 @@ truth character::TryMove(v2 MoveVector, truth Important, truth Run)
 	  return IsPlayer() && Hit(Neutral[0], NeutralPos[0], Direction);
       }
       else if(Neutrals)
+      {
 	if(IsPlayer())
 	{
 	  int Index = RAND() % Neutrals;
@@ -1178,6 +1181,7 @@ truth character::TryMove(v2 MoveVector, truth Important, truth Run)
 	}
 	else
 	  return false;
+      }
 
       if(!IsPlayer())
 	for(int c = 0; c < Squares; ++c)
@@ -1193,8 +1197,8 @@ truth character::TryMove(v2 MoveVector, truth Important, truth Run)
       else if(Pets)
 	return false;
 
-      if(CanMove()
-	 && CanMoveOn(MoveToSquare[0])
+      if((CanMove()
+	  && CanMoveOn(MoveToSquare[0]))
 	 || (game::GoThroughWallsCheatIsActive() && IsPlayer()))
       {
 	Move(MoveTo, false, Run);
@@ -2088,10 +2092,12 @@ void character::GetPlayerCommand()
 	game::AskForKeyPress(CONST_S("You are horrified by your situation! [press any key to continue]"));
       }
       else if(ivanconfig::GetWarnAboutDanger())
+      {
 	if(game::GetDangerFound() > 50.)
 	  game::AskForKeyPress(CONST_S("You sense great danger! [press any key to continue]"));
 	else
 	  game::AskForKeyPress(CONST_S("You sense danger! [press any key to continue]"));
+      }
 
       game::SetDangerFound(0);
     }
@@ -2594,6 +2600,7 @@ truth character::FollowLeader(character* Leader)
 void character::SeekLeader(const character* Leader)
 {
   if(Leader && Leader != this)
+  {
     if(Leader->CanBeSeenBy(this) && (Leader->SquareUnderCanBeSeenBy(this, true) || !IsGoingSomeWhere()))
     {
       if(CommandFlags & FOLLOW_LEADER)
@@ -2621,6 +2628,7 @@ void character::SeekLeader(const character* Leader)
 	  }
 	}
     }
+  }
 }
 
 int character::GetMoveEase() const
@@ -2935,7 +2943,7 @@ void character::GoOn(go* Go, truth FirstStep)
 void character::SetTeam(team* What)
 {
   if(Team)
-    int esko = esko = 2;
+    (void)0; // should never happen
 
   Team = What;
   SetTeamIterator(What->Add(this));
@@ -3250,6 +3258,7 @@ int character::ReceiveBodyPartDamage(character* Damager, int Damage, int Type,in
     Damage -= (BodyPart->GetTotalResistance(Type) >> 1) + RAND() % ((BodyPart->GetTotalResistance(Type) >> 1) + 1);
 
   if(int(Damage) < 1)
+  {
     if(Critical)
       Damage = 1;
     else
@@ -3264,6 +3273,7 @@ int character::ReceiveBodyPartDamage(character* Damager, int Damage, int Type,in
 
       return 0;
     }
+  }
 
   if(Critical && AllowDamageTypeBloodSpill(Type) && !game::IsInWilderness())
   {
@@ -3587,6 +3597,7 @@ void character::Regenerate()
   RegenerationBonus *= (50 + GetAttribute(ENDURANCE));
 
   if(Action && Action->IsRest())
+  {
     if(SquaresUnder == 1)
       RegenerationBonus *= GetSquareUnder()->GetRestModifier() << 1;
     else
@@ -3603,6 +3614,7 @@ void character::Regenerate()
 
       RegenerationBonus *= Lowest << 1;
     }
+  }
 
   RegenerationCounter += RegenerationBonus;
 
@@ -4443,7 +4455,7 @@ void character::BeginTemporaryState(long State, int Counter)
       break;
 
   if(Index == STATES)
-    ABORT("BeginTemporaryState works only when State == 2 ^ n!");
+    ABORT("BeginTemporaryState works only when State == 2ï¿½^ n!");
 
   if(TemporaryStateIsActivated(State))
   {
@@ -4584,19 +4596,23 @@ void character::PrintEndInvisibilityMessage() const
 void character::PrintBeginInfraVisionMessage() const
 {
   if(IsPlayer())
+  {
     if(StateIsActivated(INVISIBLE) && IsWarm() && !(StateIsActivated(ESP) && GetAttribute(INTELLIGENCE) >= 5))
       ADD_MESSAGE("You reappear.");
     else
       ADD_MESSAGE("You feel your perception being magically altered.");
+  }
 }
 
 void character::PrintEndInfraVisionMessage() const
 {
   if(IsPlayer())
+  {
     if(StateIsActivated(INVISIBLE) && IsWarm() && !(StateIsActivated(ESP) && GetAttribute(INTELLIGENCE) >= 5))
       ADD_MESSAGE("You disappear.");
     else
       ADD_MESSAGE("You feel your perception returning to normal.");
+  }
 }
 
 void character::PrintBeginESPMessage() const
@@ -7182,7 +7198,7 @@ truth character::CreateRoute()
 
 	if(Char->IsEnabled()
 	   && !Char->Route.empty()
-	   && Char->GetMoveType() & GetMoveType() == Char->GetMoveType())
+	   && ((Char->GetMoveType() & GetMoveType()) == Char->GetMoveType()))
 	{
 	  v2 CharGoingTo = Char->Route[0];
 	  v2 iPos = Char->Route.back();
@@ -7483,19 +7499,23 @@ truth character::CheckIfTooScaredToHit(const character* Enemy) const
 void character::PrintBeginLevitationMessage() const
 {
   if(!IsFlying())
+  {
     if(IsPlayer())
       ADD_MESSAGE("You rise into the air like a small hot-air balloon.");
     else if(CanBeSeenByPlayer())
       ADD_MESSAGE("%s begins to float.", CHAR_NAME(DEFINITE));
+  }
 }
 
 void character::PrintEndLevitationMessage() const
 {
   if(!IsFlying())
+  {
     if(IsPlayer())
       ADD_MESSAGE("You descent gently onto the ground.");
     else if(CanBeSeenByPlayer())
       ADD_MESSAGE("%s drops onto the ground.", CHAR_NAME(DEFINITE));
+  }
 }
 
 truth character::IsLimbIndex(int I)
@@ -7596,20 +7616,24 @@ void character::EditExperience(int Identifier, double Value, double Speed)
       PlayerMsg = "You feel very confident of your social skills.";
 
       if(IsPet())
+      {
 	if(GetAttribute(CHARISMA) <= 15)
 	  NPCMsg = "%s looks less ugly.";
 	else
 	  NPCMsg = "%s looks more attractive.";
+      }
     }
     else
     {
       PlayerMsg = "You feel somehow disliked.";
 
       if(IsPet())
+      {
 	if(GetAttribute(CHARISMA) < 15)
 	  NPCMsg = "%s looks more ugly.";
 	else
 	  NPCMsg = "%s looks less attractive.";
+      }
     }
 
     if(IsPlayerKind())
@@ -8117,7 +8141,7 @@ void character::DecreaseStateCounter(long State, int Counter)
       break;
 
   if(Index == STATES)
-    ABORT("DecreaseTemporaryStateCounter works only when State == 2 ^ n!");
+    ABORT("DecreaseTemporaryStateCounter works only when State == 2ï¿½^ n!");
 
   if(TemporaryState & State)
   {
@@ -8216,12 +8240,14 @@ void character::Disappear(corpse* Corpse, const char* Verb, truth (item::*CloseP
   if((GetTorso()->*ClosePredicate)())
   {
     if(CanBeSeen)
+    {
       if(Corpse)
 	ADD_MESSAGE("%s %ss.", Corpse->CHAR_NAME(DEFINITE), Verb);
       else if(IsPlayer())
 	ADD_MESSAGE("You %s.", Verb);
       else
 	ADD_MESSAGE("%s %ss.", CHAR_NAME(DEFINITE), Verb);
+    }
 
     TorsoDisappeared = true;
 
@@ -8252,13 +8278,16 @@ void character::Disappear(corpse* Corpse, const char* Verb, truth (item::*CloseP
     bodypart* BodyPart = GetBodyPart(c);
 
     if(BodyPart)
+    {
       if((BodyPart->*ClosePredicate)())
       {
 	if(!TorsoDisappeared && CanBeSeen)
+	{
 	  if(IsPlayer())
 	    ADD_MESSAGE("Your %s %ss.", GetBodyPartName(c).CStr(), Verb);
 	  else
 	    ADD_MESSAGE("The %s of %s %ss.", GetBodyPartName(c).CStr(), CHAR_NAME(DEFINITE), Verb);
+	}
 
 	BodyPart->DropEquipment();
 	item* BodyPart = SevereBodyPart(c);
@@ -8272,13 +8301,16 @@ void character::Disappear(corpse* Corpse, const char* Verb, truth (item::*CloseP
 	item* BodyPart = SevereBodyPart(c);
 
 	if(BodyPart)
+	{
 	  if(Corpse)
 	    Corpse->GetSlot()->AddFriendItem(BodyPart);
 	  else if(!game::IsInWilderness())
 	    GetStackUnder()->AddItem(BodyPart);
 	  else
 	    BodyPart->SendToHell();
+	}
       }
+    }
   }
 
   if(TorsoDisappeared)
@@ -8920,6 +8952,7 @@ void character::ModifySituationDanger(double& Danger) const
   {
    case FAINTING:
     Danger *= 1.5;
+    [[fallthrough]];
    case EXHAUSTED:
     Danger *= 1.25;
   }
@@ -9139,7 +9172,7 @@ truth character::TryToUnStickTraps(v2 Dir)
       entity* Trap = game::SearchTrap(TrapVector[c].TrapID);
 
       if(!Trap->Exists())
-	int esko = esko = 2;
+	(void)0; // should never happen
 
       if(Trap->GetVictimID() == GetID() && Trap->TryToUnStick(this, Dir))
 	break;
@@ -9297,13 +9330,13 @@ int character::RandomizeHurtBodyPart(ulong BodyParts) const
     if(1 << c & BodyParts)
     {
       if(!GetBodyPart(c))
-	int esko = esko = 2;
+	(void)0; // should never happen
 
       BodyPartIndex[Index++] = c;
     }
 
   if(!Index)
-    int esko = esko = 2;
+    (void)0; // should never happen
 
   return BodyPartIndex[RAND_N(Index)];
 }
@@ -9330,7 +9363,7 @@ void character::PrintAttribute(const char* Desc, int I, int PanelPosX, int Panel
 
   if(Attribute != NoBonusAttribute)
   {
-    int Where = PanelPosX + (String.GetSize() + 1 << 3);
+    int Where = PanelPosX + ((String.GetSize() + 1) << 3);
     FONT->Printf(DOUBLE_BUFFER, v2(Where, PanelPosY * 10), LIGHT_GRAY,
 		 "%d", NoBonusAttribute);
   }
