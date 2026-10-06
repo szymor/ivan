@@ -116,7 +116,7 @@ void festring::CreateOwnData(const char* CStr, sizetype N)
 {
   Size = N;
   Reserved = N|FESTRING_PAGE;
-  char* Ptr = 4 + new char[Reserved + 5];
+  char* Ptr = sizeof(ulong) + new char[Reserved + sizeof(ulong) + 1];
   REFS(Ptr) = 0;
   Data = Ptr;
   memcpy(Ptr, CStr, N);
@@ -137,7 +137,7 @@ void festring::SlowAppend(char Char)
       DeletePtr = &REFS(OldPtr);
 
     Reserved = NewSize|FESTRING_PAGE;
-    char* NewPtr = 4 + new char[Reserved + 5];
+    char* NewPtr = sizeof(ulong) + new char[Reserved + sizeof(ulong) + 1];
     REFS(NewPtr) = 0;
     Data = NewPtr;
     memcpy(NewPtr, OldPtr, OldSize);
@@ -150,7 +150,7 @@ void festring::SlowAppend(char Char)
   {
     Size = 1;
     Reserved = FESTRING_PAGE;
-    char* Ptr = 4 + new char[FESTRING_PAGE + 5];
+    char* Ptr = sizeof(ulong) + new char[FESTRING_PAGE + sizeof(ulong) + 1];
     REFS(Ptr) = 0;
     Ptr[0] = Char;
     Data = Ptr;
@@ -174,7 +174,7 @@ void festring::SlowAppend(const char* CStr, sizetype N)
       DeletePtr = &REFS(OldPtr);
 
     Reserved = NewSize|FESTRING_PAGE;
-    char* NewPtr = 4 + new char[Reserved + 5];
+    char* NewPtr = sizeof(ulong) + new char[Reserved + sizeof(ulong) + 1];
     REFS(NewPtr) = 0;
     Data = NewPtr;
     memcpy(NewPtr, OldPtr, OldSize);
@@ -205,7 +205,7 @@ void festring::Assign(sizetype N, char C)
   }
 
   Reserved = N|FESTRING_PAGE;
-  Ptr = 4 + new char[Reserved + 5];
+  Ptr = sizeof(ulong) + new char[Reserved + sizeof(ulong) + 1];
   REFS(Ptr) = 0;
   Data = Ptr;
   memset(Ptr, C, N);
@@ -240,7 +240,7 @@ void festring::Resize(sizetype N, char C)
     }
 
     Reserved = N|FESTRING_PAGE;
-    NewPtr = 4 + new char[Reserved + 5];
+    NewPtr = sizeof(ulong) + new char[Reserved + sizeof(ulong) + 1];
     REFS(NewPtr) = 0;
     Data = NewPtr;
     memcpy(NewPtr, OldPtr, OldSize);
@@ -259,7 +259,7 @@ void festring::Resize(sizetype N, char C)
 	--REFS(OldPtr);
 
     Reserved = N|FESTRING_PAGE;
-    NewPtr = 4 + new char[Reserved + 5];
+    NewPtr = sizeof(ulong) + new char[Reserved + sizeof(ulong) + 1];
     REFS(NewPtr) = 0;
     Data = NewPtr;
     memcpy(NewPtr, OldPtr, N);
@@ -362,7 +362,7 @@ void festring::Erase(sizetype Pos, sizetype Length)
       sizetype NewSize = MoveReq ? OldSize - Length : Pos;
       Size = NewSize;
       Reserved = NewSize|FESTRING_PAGE;
-      char* Ptr = 4 + new char[Reserved + 5];
+      char* Ptr = sizeof(ulong) + new char[Reserved + sizeof(ulong) + 1];
       REFS(Ptr) = 0;
       Data = Ptr;
       OwnsData = true;
@@ -411,7 +411,7 @@ void festring::Insert(sizetype Pos, const char* CStr, sizetype N)
       }
 
       Reserved = NewSize|FESTRING_PAGE;
-      char* NewPtr = 4 + new char[Reserved + 5];
+      char* NewPtr = sizeof(ulong) + new char[Reserved + sizeof(ulong) + 1];
       REFS(NewPtr) = 0;
       Data = NewPtr;
       memcpy(NewPtr, OldPtr, Pos);

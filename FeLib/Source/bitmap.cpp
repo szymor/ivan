@@ -873,12 +873,12 @@ void bitmap::DrawLine(int OrigFromX, int OrigFromY, int OrigToX, int OrigToY, co
   static const int PointY[] = { 0, -1, 0, 0, 1 };
   const int Times = Wide ? 5 : 1;
 
-  for(int c = 0; c < Times; ++c)
+  for(int d = 0; d < Times; ++d)
   {
-    const int X1 = OrigFromX + PointX[c];
-    const int Y1 = OrigFromY + PointY[c];
-    const int X2 = OrigToX + PointX[c];
-    const int Y2 = OrigToY + PointY[c];
+    const int X1 = OrigFromX + PointX[d];
+    const int Y1 = OrigFromY + PointY[d];
+    const int X2 = OrigToX + PointX[d];
+    const int Y2 = OrigToY + PointY[d];
     const int DeltaX = abs(X2 - X1);
     const int DeltaY = abs(Y2 - Y1);
     int x, c;
@@ -2041,18 +2041,17 @@ void cachedfont::PrintCharacter(const blitdata B) const
   }
 
   packcol16** SrcLine = &Image[B.Src.Y];
-  packcol16** EndLine = SrcLine + 9;
+  packcol16** EndLine = SrcLine + B.Border.Y;
   packcol16** SrcMaskLine = &MaskMap[B.Src.Y];
   packcol16** DestLine = &B.Bitmap->Image[B.Dest.Y];
 
   for(; SrcLine != EndLine; ++SrcLine, ++SrcMaskLine, ++DestLine)
   {
-    const ulong* FontPtr = reinterpret_cast<const ulong*>(*SrcLine + B.Src.X);
-    const ulong* EndPtr = FontPtr + 5;
-    const ulong* MaskPtr = reinterpret_cast<const ulong*>(*SrcMaskLine + B.Src.X);
-    ulong* DestPtr = reinterpret_cast<ulong*>(*DestLine + B.Dest.X);
+    const packcol16* FontPtr = *SrcLine + B.Src.X;
+    const packcol16* MaskPtr = *SrcMaskLine + B.Src.X;
+    packcol16* DestPtr = *DestLine + B.Dest.X;
 
-    for(; FontPtr != EndPtr; ++DestPtr, ++MaskPtr, ++FontPtr)
+    for(int x = 0; x < B.Border.X; ++x, ++DestPtr, ++MaskPtr, ++FontPtr)
       *DestPtr = *DestPtr & *MaskPtr | *FontPtr;
   }
 }

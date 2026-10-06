@@ -7,6 +7,9 @@ config.cache
 stamp-h[0-9]*
 autom4te.cache/
 
+# --- Local install prefix (./configure --prefix=$PWD/.local) ------------
+/.local/
+
 # --- Dependency tracking -------------------------------------------------
 .deps/
 *.Po
