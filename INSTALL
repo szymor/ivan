@@ -1,7 +1,58 @@
 Compiling IVAN under different systems
 --------------------------------------
 
-Under Linux, type:
+CMake build (recommended)
+-------------------------
+
+Requirements:
+
+   CMake 3.20 or newer
+   SDL 1.2 development files (library + headers)
+   any C++17 compiler (GCC, Clang, MSVC)
+
+Development build -- builds straight into the build tree and runs
+without installing:
+
+   cmake --preset dev
+   cmake --build --preset dev
+   ./build/ivan
+
+Release build installed into ./.local:
+
+   cmake --preset local
+   cmake --build --preset local
+   cmake --install build-local
+
+Without presets:
+
+   cmake -S . -B build
+   cmake --build build
+   cmake --install build          # add --prefix to choose the prefix
+
+Useful cache options (pass them to cmake -S/-B or with cmake-gui):
+
+   -DIVAN_WIZARD=ON            enable wizard/cheat mode, as the old
+                               Windows builds did (default OFF)
+   -DIVAN_INSTALL_PERMS=ON     old "make install" extras that need root:
+                               chown/chgrp the highscore file, Bones/ and the
+                               binary to the "games" group, and set the
+                               setgid bit on the binary (the Bones/ directory
+                               and the highscore file themselves are always
+                               created on install)
+   -DIVAN_DATADIR=DIR          directory whose ivan/ subdirectory holds
+                               Script/ and Graphics/ (compiled in)
+   -DIVAN_LOCALSTATEDIR=DIR    directory for the highscore file and
+                               Bones/ (compiled in)
+   -DCMAKE_INSTALL_PREFIX=DIR  usual CMake install prefix
+
+Note: DATADIR and LOCAL_STATE_DIR are baked into the binary, as they
+always were, so they are taken from the configure step -- installing
+with a different --prefix than the configured CMAKE_INSTALL_PREFIX
+moves the files but not the paths the game looks for.
+
+--------------------------------------
+
+Under Linux (original GNU Autotools build, kept alongside CMake):
 
 ./configure
 make
@@ -34,5 +85,3 @@ install SDL development libraries,
 which can be downloaded from:
 
 http://www.libsdl.org/
-
---------------------------------------
