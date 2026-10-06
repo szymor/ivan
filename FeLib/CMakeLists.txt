@@ -1,7 +1,8 @@
 # FeLib -- IVAN's front-end utility library.
-# Was: FeLib/Source/Makefile.am -> noinst_LIBRARIES = libFeLib.a
+# Implements the static library (libFeLib.a) of the original project layout.
 #
-# The source list must stay explicit: it is the list from libFeLib_a_SOURCES.
+# The source list must stay explicit: it is the list from the original
+# Autotools libFeLib_a_SOURCES.
 
 add_library(FeLib STATIC
   Source/bitmap.cpp

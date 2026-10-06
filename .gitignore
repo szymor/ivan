@@ -1,21 +1,16 @@
-# --- Autotools generated files ------------------------------------------
-# configure output. Makefile.am / Makefile.in / configure are tracked source.
-Makefile
-config.log
-config.status
-config.cache
-stamp-h[0-9]*
-autom4te.cache/
+# --- CMake build trees ----------------------------------------------------
+/build/
+/build-*/
+/cmake-build-*/
+compile_commands.json
+CMakeUserPresets.json
 
-# --- Local install prefix (./configure --prefix=$PWD/.local) ------------
+# --- Local install prefix (cmake --preset local) --------------------------
 /.local/
 
-# --- Dependency tracking -------------------------------------------------
-.deps/
-*.Po
-*.d
-
 # --- Compiled objects and libraries -------------------------------------
+# The legacy in-tree DJGPP build (ivandj.mak) still compiles in the source
+# tree, so keep the classic object/binary patterns around.
 *.o
 *.a
 *.lo
@@ -27,17 +22,10 @@ autom4te.cache/
 *.dylib
 
 # --- Built binaries ------------------------------------------------------
-# Main game executable (bin_PROGRAMS = ivan)
+# ivandj.mak produces IVAN.exe in the tree
 ivan
 ivan.exe
 *.exe
-
-# --- CMake build trees ----------------------------------------------------
-/build/
-/build-*/
-/cmake-build-*/
-compile_commands.json
-CMakeUserPresets.json
 
 # --- Editor and OS cruft -------------------------------------------------
 *~

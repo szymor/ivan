@@ -1,12 +1,10 @@
-# The IVAN game executable.
-# Was: Main/Source/Makefile.am -> bin_PROGRAMS = ivan
+# The IVAN game executable (from the original project layout).
 #
 # Do NOT glob this directory. Only the 25 files below are compiled; the other
 # 39 *.cpp files in Source/ are textually #included by the *set.cpp files
 # (charset.cpp does #include "char.cpp", itemset.cpp includes item.cpp, ...),
-# exactly as ivan_SOURCES / EXTRA_DIST split them in the old Makefile.am.
-# A glob would compile those twice and fail at link time with duplicate
-# symbols.
+# exactly as the original Autotools build split them. A glob would compile
+# those twice and fail at link time with duplicate symbols.
 
 add_executable(ivan
   Source/actset.cpp
@@ -48,7 +46,7 @@ set_target_properties(ivan PROPERTIES
 )
 
 if(WIN32)
-  # Windowed application with the icon, like Main.dsp / ivanmgw.mak did.
+  # Windowed application with the icon, as the original Windows builds did.
   target_sources(ivan PRIVATE Resource/Ivan.rc)
   set_target_properties(ivan PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()

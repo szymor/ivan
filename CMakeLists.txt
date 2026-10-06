@@ -1,7 +1,9 @@
 # Iter Vehemens ad Necem (IVAN) -- CMake build system
 #
-# Port of the original GNU Autotools build (configure.in / Makefile.am), kept
-# side by side with it until the CMake port is validated.
+# Port of the original GNU Autotools build (configure.in / Makefile.am),
+# which was removed from the tree once this port was validated (the old
+# Autotools, MSVC .dsp/.dsw and MinGW build files are still in git history;
+# ivandj.mak is kept for the DJGPP/DOS build).
 
 cmake_minimum_required(VERSION 3.20)
 
@@ -49,7 +51,8 @@ message(STATUS "IVAN: using SDL ${SDL_VERSION} (${SDL_LIBRARY})")
 # ------------------------------------------------------- shared build flags ---
 
 # Carried by every target: SDL include dirs/libraries plus the definitions the
-# old configure.in put into CPPFLAGS (applied to FeLib and the game alike).
+# original Autotools configure step put into CPPFLAGS (applied to FeLib and
+# the game alike).
 add_library(ivan_build_flags INTERFACE)
 
 target_link_libraries(ivan_build_flags INTERFACE SDL::SDL)
@@ -118,7 +121,7 @@ endif()
 
 # ----------------------------------------------------------------- install ---
 
-# Data files, as in Script/Makefile.am and Graphics/Makefile.am.
+# Data files, as in the original Autotools build (Script/ and Graphics/).
 install(DIRECTORY Script/
         DESTINATION ${CMAKE_INSTALL_DATADIR}/ivan/Script
         FILES_MATCHING PATTERN "*.dat")
