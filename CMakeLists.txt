@@ -41,24 +41,45 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
 endif()
 
-# --------------------------------------------------------------------- SDL ---
+# ----------------------------------------------------------------- backend ---
 
+# Which FeLib video/input backend to build: the folder name under
+# FeLib/Source/backends/. (The djgpp/DOS backend is built with ivandj.mak,
+# not this build system, since it needs the DJGPP toolchain.)
+set(IVAN_BACKEND "sdl12" CACHE STRING "FeLib video/input backend folder")
+set_property(CACHE IVAN_BACKEND PROPERTY STRINGS sdl12)
+
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/FeLib/Source/backends/${IVAN_BACKEND}/video.cpp")
+  message(FATAL_ERROR
+          "IVAN: unknown IVAN_BACKEND '${IVAN_BACKEND}': "
+          "FeLib/Source/backends/${IVAN_BACKEND}/video.cpp not found")
+endif()
+
+message(STATUS "IVAN: backend: ${IVAN_BACKEND}")
+
+# Each backend brings its own dependencies. The SDL 1.2 backend needs the
 # SDL 1.2 headers (SDL.h) and library; the module ships with CMake and
 # provides the SDL::SDL imported target.
-find_package(SDL 1.2 REQUIRED)
-message(STATUS "IVAN: using SDL ${SDL_VERSION} (${SDL_LIBRARY})")
+if(IVAN_BACKEND STREQUAL "sdl12")
+  find_package(SDL 1.2 REQUIRED)
+  message(STATUS "IVAN: using SDL ${SDL_VERSION} (${SDL_LIBRARY})")
+endif()
 
 # ------------------------------------------------------- shared build flags ---
 
-# Carried by every target: SDL include dirs/libraries plus the definitions the
-# original Autotools configure step put into CPPFLAGS (applied to FeLib and
-# the game alike).
+# Carried by every target: the chosen backend's libraries plus the
+# definitions the original Autotools configure step put into CPPFLAGS
+# (applied to FeLib and the game alike).
 add_library(ivan_build_flags INTERFACE)
 
-target_link_libraries(ivan_build_flags INTERFACE SDL::SDL)
+if(IVAN_BACKEND STREQUAL "sdl12")
+  target_link_libraries(ivan_build_flags INTERFACE SDL::SDL)
+  # USE_SDL no longer gates any graphics/input code; only the leftover
+  # SDL includes in femain.cpp (the Win32 SDL_main remap) are behind it.
+  target_compile_definitions(ivan_build_flags INTERFACE USE_SDL)
+endif()
 
 target_compile_definitions(ivan_build_flags INTERFACE
-  USE_SDL
   "DATADIR=\"${IVAN_DATADIR}\""
   "LOCAL_STATE_DIR=\"${IVAN_LOCALSTATEDIR}\""
 )

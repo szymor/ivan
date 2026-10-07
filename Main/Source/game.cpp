@@ -1216,8 +1216,6 @@ void game::UpdateCamera()
 
 truth game::HandleQuitMessage()
 {
-#ifdef USE_SDL
-
   if(IsRunning())
   {
     if(IsInGetCommand())
@@ -1249,8 +1247,6 @@ truth game::HandleQuitMessage()
 	return false;
       }
   }
-
-#endif /* USE_SDL */
 
   return true;
 }

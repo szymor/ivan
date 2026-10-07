@@ -13,49 +13,32 @@
 #ifndef __WHANDLER_H__
 #define __WHANDLER_H__
 
-#ifdef USE_SDL
-#include <vector>
-#include "SDL.h"
-#endif
-
-#ifdef __DJGPP__
-#include <ctime>
-#endif
-
 #include "felibdef.h"
 
 #define GET_KEY globalwindowhandler::GetKey
 #define READ_KEY globalwindowhandler::ReadKey
 #define GET_TICK globalwindowhandler::GetTick
 
+/* Facade over the input backend. The platform-dependent definitions of
+   Init, GetKey, ReadKey, UpdateTick and SetQuitMessageHandler live in
+   exactly one folder under FeLib/Source/backends/, selected by the build
+   system. */
+
 class globalwindowhandler
 {
  public:
   static int GetKey(truth = true);
   static int ReadKey();
+  static void Init();
+  static void SetQuitMessageHandler(truth (*)());
+  static void UpdateTick();
   static void InstallControlLoop(truth (*)());
   static void DeInstallControlLoop(truth (*)());
   static ulong GetTick() { return Tick; }
   static truth ControlLoopsInstalled() { return Controls; }
   static void EnableControlLoops() { ControlLoopsEnabled = true; }
   static void DisableControlLoops() { ControlLoopsEnabled = false; }
-#ifdef USE_SDL
-  static void Init();
-  static void SetQuitMessageHandler(truth (*What)())
-  { QuitMessageHandler = What; }
-  static void UpdateTick() { Tick = SDL_GetTicks() / 40; }
-#endif
-#ifdef __DJGPP__
-  static void Init() { }
-  static void SetQuitMessageHandler(truth (*)()) { }
-  static void UpdateTick() { Tick = uclock() * 25 / UCLOCKS_PER_SEC; }
-#endif
  private:
-#ifdef USE_SDL
-  static void ProcessMessage(SDL_Event*);
-  static std::vector<int> KeyBuffer;
-  static truth (*QuitMessageHandler)();
-#endif
   static truth (*ControlLoop[MAX_CONTROLS])();
   static int Controls;
   static ulong Tick;
