@@ -2259,7 +2259,14 @@ node* level::FindRoute(v2 From, v2 To, const std::set<v2>& Illegal, int Required
   Node->Processed = true;
   Node->Distance = 0;
   Node->Diagonals = 0;
+  /* The queue is static so that the address stored in node::NodeQueue does
+     not dangle once this function returns.  It must nevertheless start every
+     search empty: the loop below returns as soon as To is reached, so a stale
+     node left over from the previous search would be processed again without
+     being marked Processed, corrupting the ->Last chain into a cycle (which
+     CreateRoute then walks forever until memory is exhausted). */
   static nodequeue NodeQueue;
+  NodeQueue = nodequeue();
   NodeQueue.push(nodepointerstorer(Node));
   node::NodeQueue = &NodeQueue;
 
