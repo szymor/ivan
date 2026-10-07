@@ -41,6 +41,13 @@ void graphics::Init()
     if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER))
       ABORT("Can't initialize SDL.");
 
+    /* The 800x600 buffer rarely maps 1:1 onto the screen (e.g. 1366x768
+       fullscreen is 1.28x from the desktop). Nearest-neighbour scaling of
+       a non-integer factor doubles pixels unevenly, so request linear
+       interpolation for the final present (applies to textures created
+       from here on; the streaming texture also sets it explicitly). */
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+
     atexit(graphics::DeInit);
   }
 }
@@ -136,6 +143,10 @@ void graphics::SetMode(const char* Title, const char* IconName,
 
   if(!Texture)
     ABORT("Couldn't create texture.");
+
+  /* Explicit scale mode -- the hint above already made this the default,
+     but state it here so the smoothing does not depend on hint handling. */
+  SDL_SetTextureScaleMode(Texture, SDL_ScaleModeLinear);
 
   globalwindowhandler::Init();
   DoubleBuffer = new bitmap(NewRes);
