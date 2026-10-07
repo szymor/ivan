@@ -55,9 +55,16 @@ void graphics::SetMode(const char* Title, const char* IconName,
   if(IconName)
   {
     SDL_Surface* Icon = SDL_LoadBMP(IconName);
-    SDL_SetColorKey(Icon, SDL_SRCCOLORKEY,
-		    SDL_MapRGB(Icon->format, 255, 255, 255));
-    SDL_WM_SetIcon(Icon, NULL);
+
+    if(Icon)
+    {
+      SDL_SetColorKey(Icon, SDL_SRCCOLORKEY,
+		      SDL_MapRGB(Icon->format, 255, 255, 255));
+      SDL_WM_SetIcon(Icon, NULL);
+      /* SDL_WM_SetIcon copies what it needs and keeps ownership of the
+	 surface with the caller, so free it here. */
+      SDL_FreeSurface(Icon);
+    }
   }
 
   ulong Flags = SDL_SWSURFACE;
