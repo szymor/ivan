@@ -38,7 +38,7 @@ square* item::GetSquareUnder(int I) const { return Slot[I] ? Slot[I]->GetSquareU
 lsquare* item::GetLSquareUnder(int I) const { return static_cast<lsquare*>(Slot[I]->GetSquareUnder()); }
 void item::SignalStackAdd(stackslot* StackSlot, void (stack::*)(item*, truth)) { Slot[0] = StackSlot; }
 truth item::IsAnimated() const { return GraphicData.AnimationFrames > 1 || (Fluid && ShowFluids()); }
-truth item::IsRusted() const { return MainMaterial->GetRustLevel() != NOT_RUSTED; }
+truth item::IsRusted() const { return MainMaterial && MainMaterial->GetRustLevel() != NOT_RUSTED; }
 truth item::IsEatable(const character* Eater) const { return GetConsumeMaterial(Eater, &material::IsSolid) && IsConsumable(); }
 truth item::IsDrinkable(const character* Eater) const { return GetConsumeMaterial(Eater, &material::IsLiquid) && IsConsumable(); }
 pixelpredicate item::GetFluidPixelAllowedPredicate() const { return &rawbitmap::IsTransparent; }
