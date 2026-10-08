@@ -238,7 +238,7 @@ character* protosystem::CreateMonster(int MinDanger, int MaxDanger, int SpecialF
   std::vector<configid> Possible;
   character* Monster = 0;
 
-  for(;;)
+  while(!Monster)
   {
     for(int Type = 1; Type < protocontainer<character>::GetSize(); ++Type)
     {
