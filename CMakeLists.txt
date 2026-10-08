@@ -46,8 +46,8 @@ endif()
 # Which FeLib video/input backend to build: the folder name under
 # FeLib/Source/backends/. (The djgpp/DOS backend is built with ivandj.mak,
 # not this build system, since it needs the DJGPP toolchain.)
-set(IVAN_BACKEND "sdl2" CACHE STRING "FeLib video/input backend folder")
-set_property(CACHE IVAN_BACKEND PROPERTY STRINGS sdl12 sdl2)
+set(IVAN_BACKEND "sdl3" CACHE STRING "FeLib video/input backend folder")
+set_property(CACHE IVAN_BACKEND PROPERTY STRINGS sdl12 sdl2 sdl3)
 
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/FeLib/Source/backends/${IVAN_BACKEND}/video.cpp")
   message(FATAL_ERROR
