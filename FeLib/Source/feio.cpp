@@ -123,12 +123,23 @@ int iosystem::Menu(const bitmap* BackGround, v2 Pos,
   Backup.ActivateFastFlag();
   bitmap Buffer(RES);
   Buffer.ActivateFastFlag();
+  Buffer.ClearToColor(0);
   int c = 0;
 
   if(BackGround)
-    BackGround->FastBlit(&Buffer);
-  else
-    Buffer.ClearToColor(0);
+  {
+    /* NormalBlit clips instead of FastBlit's unchecked row memcpy, so a
+       background smaller (or bigger) than the screen can't smear or
+       overflow; whatever it leaves uncovered stays cleared. */
+    blitdata B = { &Buffer,
+		   { 0, 0 },
+		   { 0, 0 },
+		   { BackGround->GetSize().X, BackGround->GetSize().Y },
+		   { 0 },
+		   0,
+		   0 };
+    BackGround->NormalBlit(B);
+  }
 
   festring sCopyOfMS;
   festring VeryUnGuruPrintf;

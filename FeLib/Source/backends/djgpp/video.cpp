@@ -101,6 +101,12 @@ void graphics::DeInit()
   }
 }
 
+/* DOS has no desktop to probe and SetMode() validates the requested
+   VESA mode anyway, so the widescreen auto-selection always falls back
+   to the legacy resolution. */
+v2 graphics::GetDesktopRes() { return v2(0, 0); }
+truth graphics::IsModeSupported(v2) { return false; }
+
 void graphics::SetMode(const char*, const char*, v2 NewRes, truth)
 {
   ulong Mode;

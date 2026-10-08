@@ -83,6 +83,7 @@ class bitmap
   void DrawHorizontalLine(int, int, int, col16, truth = false);
 
   void StretchBlit(const blitdata&) const;
+  bitmap* ScaledCopy(v2) const;
 
   void DrawRectangle(int, int, int, int, col16, truth = false);
   void DrawRectangle(v2, int, int, col16, truth = false);

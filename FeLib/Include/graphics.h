@@ -35,6 +35,10 @@ class graphics
   static void DeInit();
   static void SwitchMode();
   static void SetMode(const char*, const char*, v2, truth);
+  /* Desktop size and video mode availability, used to choose the initial
+     game resolution (see igraph::Init()). Implemented by the backend. */
+  static v2 GetDesktopRes();
+  static truth IsModeSupported(v2);
   static void BlitDBToScreen();
   static v2 GetRes() { return Res; }
   static bitmap* GetDoubleBuffer() { return DoubleBuffer; }

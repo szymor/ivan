@@ -77,6 +77,14 @@ void graphics::SetMode(const char* Title, const char* IconName,
 
   Screen = SDL_SetVideoMode(NewRes.X, NewRes.Y, 16, Flags);
 
+  if(!Screen && NewRes != v2(800, 600))
+  {
+    /* The mode can still fail even after IsModeSupported() approved it,
+       so fall back to the legacy resolution instead of aborting. */
+    NewRes = v2(800, 600);
+    Screen = SDL_SetVideoMode(NewRes.X, NewRes.Y, 16, Flags);
+  }
+
   if(!Screen)
     ABORT("Couldn't set video mode.");
 
@@ -85,6 +93,34 @@ void graphics::SetMode(const char* Title, const char* IconName,
   DoubleBuffer = new bitmap(NewRes);
   Res = NewRes;
   ColorDepth = 16;
+}
+
+/* There is no scaler in this backend: fullscreen switches to a real
+   video mode, so ask SDL for the list of modes the display accepts. */
+truth graphics::IsModeSupported(v2 NewRes)
+{
+  const SDL_VideoInfo* Info = SDL_GetVideoInfo();
+
+  if(!Info)
+    return false;
+
+  SDL_Rect** Modes = SDL_ListModes(Info->vfmt,
+				   SDL_FULLSCREEN | SDL_SWSURFACE);
+
+  if(Modes == (SDL_Rect**)-1) // any mode is accepted
+    return true;
+
+  for(int c = 0; Modes && Modes[c]; ++c)
+    if(Modes[c]->w >= NewRes.X && Modes[c]->h >= NewRes.Y)
+      return true;
+
+  return false;
+}
+
+v2 graphics::GetDesktopRes()
+{
+  const SDL_VideoInfo* Info = SDL_GetVideoInfo();
+  return Info ? v2(Info->current_w, Info->current_h) : v2(0, 0);
 }
 
 void graphics::BlitDBToScreen()

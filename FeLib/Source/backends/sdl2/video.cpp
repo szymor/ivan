@@ -154,6 +154,23 @@ void graphics::SetMode(const char* Title, const char* IconName,
   ColorDepth = 16;
 }
 
+v2 graphics::GetDesktopRes()
+{
+  SDL_DisplayMode Mode;
+
+  if(SDL_GetDesktopDisplayMode(0, &Mode))
+    return v2(0, 0);
+
+  return v2(Mode.w, Mode.h);
+}
+
+/* The renderer scales any logical resolution to the window, so every
+   mode is usable. */
+truth graphics::IsModeSupported(v2)
+{
+  return true;
+}
+
 void graphics::BlitDBToScreen()
 {
   /* Row pitch is two bytes per pixel (RGB565). */

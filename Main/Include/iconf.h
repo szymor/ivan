@@ -27,6 +27,7 @@ class ivanconfig
   static truth GetAutoDropLeftOvers() { return AutoDropLeftOvers.Value; }
   static truth GetLookZoom() { return LookZoom.Value; }
   static truth GetUseAlternativeKeys() { return UseAlternativeKeys.Value; }
+  static truth GetForce4To3Aspect() { return Force4To3Aspect.Value; }
 #ifndef __DJGPP__
   static truth GetFullScreenMode() { return FullScreenMode.Value; }
   static void SwitchModeHandler();
@@ -63,6 +64,7 @@ class ivanconfig
   static truthoption AutoDropLeftOvers;
   static truthoption LookZoom;
   static truthoption UseAlternativeKeys;
+  static truthoption Force4To3Aspect;
 #ifndef __DJGPP__
   static truthoption FullScreenMode;
 #endif

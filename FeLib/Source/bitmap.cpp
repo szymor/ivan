@@ -1251,6 +1251,24 @@ void bitmap::StretchBlit(const blitdata& BlitData) const
   }
 }
 
+/* Returns a NewSize copy of this bitmap, rescaled with nearest neighbour
+   sampling; used for the menu graphic when the game resolution differs
+   from the art's native 800x600. */
+bitmap* bitmap::ScaledCopy(v2 NewSize) const
+{
+  bitmap* NewBitmap = new bitmap(NewSize, 0);
+
+  for(int y = 0; y < NewSize.Y; ++y)
+  {
+    int SourceY = y * Size.Y / NewSize.Y;
+
+    for(int x = 0; x < NewSize.X; ++x)
+      NewBitmap->PutPixel(x, y, GetPixel(x * Size.X / NewSize.X, SourceY));
+  }
+
+  return NewBitmap;
+}
+
 outputfile& operator<<(outputfile& SaveFile, const bitmap* Bitmap)
 {
   if(Bitmap)

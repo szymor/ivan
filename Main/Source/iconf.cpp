@@ -53,6 +53,12 @@ truthoption ivanconfig::LookZoom(	  "LookZoom",
 truthoption ivanconfig::UseAlternativeKeys("UseAlternativeKeys",
 					   "use alternative direction keys",
 					   false);
+/* The name must be alpha-only: inputfile::ReadWord() cuts words at the
+   first digit, so a name like "Force4To3..." could never be matched
+   when the config file is read back. */
+truthoption ivanconfig::Force4To3Aspect("ForceFourToThreeAspect",
+					"force 4:3 aspect ratio",
+					false);
 #ifndef __DJGPP__
 truthoption ivanconfig::FullScreenMode(	  "FullScreenMode",
 					  "run the game in full screen mode",
@@ -196,6 +202,7 @@ void ivanconfig::Initialize()
   configsystem::AddOption(&AutoDropLeftOvers);
   configsystem::AddOption(&LookZoom);
   configsystem::AddOption(&UseAlternativeKeys);
+  configsystem::AddOption(&Force4To3Aspect);
 #ifndef __DJGPP__
   configsystem::AddOption(&FullScreenMode);
 #endif

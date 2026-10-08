@@ -19,6 +19,7 @@
 
 #include "femath.h"
 #include "festring.h"
+#include "graphics.h"
 #include "ivandef.h"
 
 #ifndef LIGHT_BORDER
@@ -253,8 +254,12 @@ class game
   static int GetDirectionForVector(v2);
   static const char* GetVerbalPlayerAlignment();
   static void CreateGods();
-  static int GetScreenXSize() { return 42; }
-  static int GetScreenYSize() { return 26; }
+  /* The map area starts at (16, 32), the right panel is 96 px wide and
+     the message log is 122 px tall; below the map there is the 9 px tall
+     panel caption. Solving for the largest tile count that still fits
+     gives exactly 42x26 at 800x600. */
+  static int GetScreenXSize() { return (RES.X - 115) >> 4; }
+  static int GetScreenYSize() { return (RES.Y - 176) >> 4; }
   static v2 CalculateScreenCoordinates(v2);
   static void BusyAnimation();
   static void BusyAnimation(bitmap*);

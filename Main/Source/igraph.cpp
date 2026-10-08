@@ -42,6 +42,28 @@ col16 igraph::CursorColor[CURSOR_TYPES] = { MakeRGB16(40, 40, 40),
 bitmap* igraph::BackGround;
 int igraph::CurrentColorType = -1;
 
+/* The game resolution is chosen once at startup. The widescreen mode is
+   used only when the player hasn't forced 4:3, when the desktop has room
+   for it and is actually wider than 4:3 (aspect >= 1.6, hence the 5/8
+   comparison) and when the backend can display it. Everything else falls
+   back to the legacy 4:3 mode, which letterboxes on any display. */
+static v2 ChooseResolution()
+{
+  if(ivanconfig::GetForce4To3Aspect())
+    return v2(800, 600);
+
+  const v2 Widescreen(1280, 720);
+  v2 Desktop = graphics::GetDesktopRes();
+
+  if(Desktop.X >= Widescreen.X
+     && Desktop.Y >= Widescreen.Y
+     && Desktop.X * 5 >= Desktop.Y * 8
+     && graphics::IsModeSupported(Widescreen))
+    return Widescreen;
+
+  return v2(800, 600);
+}
+
 void igraph::Init()
 {
   static truth AlreadyInstalled = false;
@@ -50,7 +72,7 @@ void igraph::Init()
   {
     AlreadyInstalled = true;
     graphics::Init();
-    graphics::SetMode("IVAN " IVAN_VERSION, festring(game::GetGameDir() + "Graphics/Icon.bmp").CStr(), v2(800, 600), ivanconfig::GetFullScreenMode());
+    graphics::SetMode("IVAN " IVAN_VERSION, festring(game::GetGameDir() + "Graphics/Icon.bmp").CStr(), ChooseResolution(), ivanconfig::GetFullScreenMode());
     DOUBLE_BUFFER->ClearToColor(0);
     graphics::BlitDBToScreen();
 #ifndef __DJGPP__
@@ -438,6 +460,15 @@ void igraph::CreateBodyBitmapValidityMaps()
 void igraph::LoadMenu()
 {
   Menu = new bitmap(game::GetGameDir() + "Graphics/Menu.pcx");
+
+  /* The menu art is 800x600; iosystem::Menu() copies it with a plain
+     row memcpy, so it has to match the current resolution. */
+  if(Menu->GetSize() != RES)
+  {
+    bitmap* ScaledMenu = Menu->ScaledCopy(RES);
+    delete Menu;
+    Menu = ScaledMenu;
+  }
 }
 
 void igraph::UnLoadMenu()
@@ -486,7 +517,15 @@ void igraph::CreateBackGround(int ColorType)
   CurrentColorType = ColorType;
   delete BackGround;
   BackGround = new bitmap(RES);
+  /* GenerateFractalMap() halves StartStep down to 1, so the side must
+     stay 2^n + 1; and the indexing below must stay in bounds, so it must
+     also cover RES. 1025 is kept whenever it fits, which leaves the
+     original background untouched at the legacy resolution. */
   int Side = 1025;
+
+  while(Side < Max(RES.X, RES.Y + 1))
+    Side = ((Side - 1) << 1) + 1;
+
   int** Map;
   Alloc2D(Map, Side, Side);
   femath::GenerateFractalMap(Map, Side, Side - 1, 800);
@@ -494,7 +533,7 @@ void igraph::CreateBackGround(int ColorType)
   for(int x = 0; x < RES.X; ++x)
     for(int y = 0; y < RES.Y; ++y)
     {
-      int E = Limit<int>(abs(Map[1024 - x][1024 - (RES.Y - y)]) / 30, 0, 100);
+      int E = Limit<int>(abs(Map[Side - 1 - x][Side - 1 - (RES.Y - y)]) / 30, 0, 100);
       BackGround->PutPixel(x, y, GetBackGroundColor(E));
     }
 
