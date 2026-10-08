@@ -57,7 +57,7 @@ truthoption ivanconfig::UseAlternativeKeys("UseAlternativeKeys",
    first digit, so a name like "Force4To3..." could never be matched
    when the config file is read back. */
 truthoption ivanconfig::Force4To3Aspect("ForceFourToThreeAspect",
-					"force 4:3 aspect ratio",
+					"force 4:3 aspect ratio (restart required)",
 					false);
 #ifndef __DJGPP__
 truthoption ivanconfig::FullScreenMode(	  "FullScreenMode",
