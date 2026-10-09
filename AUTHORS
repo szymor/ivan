@@ -7,6 +7,12 @@
 |IvanDev|
 ---------
 
+Current maintainer
+------------------
+
+Szymon Morawski
+
+
 Master Programmer
 (implemented most of the bugs)
 ------------------------------
@@ -44,6 +50,7 @@ Miles Bader
 Perttu Luukko
 Niko Kosonen
 
+
 Additional graphics
 -------------------
 
@@ -52,10 +59,12 @@ In order of importance
 Vesa Peltonen
 Corey Martin
 
+
 Additional level design
 -----------------------
 
 Corey Martin
+
 
 Authors of the RNG we use
 -------------------------
@@ -63,10 +72,12 @@ Authors of the RNG we use
 Takuji Nishimura
 Makoto Matsumoto
 
+
 Author of the font we use
 -------------------------
 
 Shawn Hargreaves's Allegro, a game programming library
+
 
 Idea providers and bug hunters
 -------------------------------
