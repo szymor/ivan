@@ -128,7 +128,7 @@ solidterrain /* glterrain-> */
   {
     OKVisualEffects = MIRROR|FLIP|ROTATE;
     MainMaterialConfig == HUMUS;
-    NameSingular = "forest floor";
+    NameSingular = "floor";
     BitmapPos = 16, 16;
   }
 
@@ -138,7 +138,7 @@ solidterrain /* glterrain-> */
   {
     OKVisualEffects = MIRROR|FLIP|ROTATE;
     MainMaterialConfig == ICE;
-    NameSingular = "ice";
+    NameSingular = "field";
     BitmapPos = 16, 16;
   }
 }

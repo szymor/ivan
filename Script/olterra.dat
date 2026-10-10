@@ -347,9 +347,9 @@ decoration
     MainMaterialConfig == OAK_WOOD;
     ShowMaterial = false;
     MaterialColorB = rgb16(0, 150, 0);
+    UsesLongArticle = true;
     NameSingular = "oak tree";
     BitmapPos = 32, 336;
-    ShowMaterial = true;
     HPModifier = 25;
     IsAlwaysTransparent = false;
   }
@@ -403,7 +403,8 @@ decoration
     MainMaterialConfig == BALSA_WOOD;
     ShowMaterial = false;
     MaterialColorB = rgb16(24, 70, 24);
-    NameSingular = "dense foliage";
+    Adjective = "dense";
+    NameSingular = "foliage";
     BitmapPos = 16, 368;
     HPModifier = 30;
     IsAlwaysTransparent = false;
@@ -423,7 +424,9 @@ decoration
     MainMaterialConfig == TEAK_WOOD;
     ShowMaterial = false;
     MaterialColorB = rgb16(16, 52, 16);
-    NameSingular = "impenetrable thicket";
+    UsesLongAdjectiveArticle = true;
+    Adjective = "impenetrable";
+    NameSingular = "thicket";
     BitmapPos = 32, 336;
     HPModifier = 40;
     IsAlwaysTransparent = false;
