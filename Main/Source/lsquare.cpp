@@ -1361,7 +1361,11 @@ void lsquare::KickAnyoneStandingHereAway()
   {
     character* Backup = Character;
     Backup->Remove();
-    Backup->PutNear(Pos);
+
+    /* If there is genuinely nowhere else to go, put it back: a character that
+       silently ends up with no square under it crashes the next accessor. */
+    if(!Backup->PutNear(Pos))
+      Backup->PutTo(Pos);
   }
 }
 

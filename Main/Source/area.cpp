@@ -89,5 +89,5 @@ square* area::GetNeighbourSquare(v2 Pos, int I) const
 
 void area::SetEntryPos(int I, v2 Pos)
 {
-  EntryMap.insert(std::pair<int, v2>(I, Pos));
+  EntryMap[I] = Pos;
 }

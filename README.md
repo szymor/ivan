@@ -159,6 +159,22 @@ You also get a high bonus for winning, depending on your victory type
 **A:** The wizard mode functions aren't built by default. Configure with
 `-DIVAN_WIZARD=ON` and recompile.
 
+**Q:** What happens when I press `>` on a world-map tile that has no town or
+cave entrance?
+
+**A:** You enter a local wilderness area matching that tile's terrain (jungle,
+forest, steppe, desert, tundra, glacier or open sea). The area is generated
+the first time you visit it and then persists for the rest of the game: any
+terrain you change, items you drop, corpses and surviving wildlife are still
+there when you return, and the initial population is not regenerated. Leave by
+walking off any map edge and you return to the exact world-map tile you came
+from. Wildlife is hostile, so be careful. Note that sea travel is still
+restricted: you can only enter ocean tiles your character can actually reach,
+and open sea has no islands. Forests are generated as broad, uneven stands with
+clearings rather than a few isolated groves, and the terrain is generated once
+so it persists. Saves from version 119 and earlier are not compatible; a new
+game is required.
+
 **Q:** I am a DOS user. When I try to run IVAN, I get the message "Load error:
 no DPMI - Get csdpmi*b.zip".
 

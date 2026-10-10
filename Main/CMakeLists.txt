@@ -1,10 +1,14 @@
 # The IVAN game executable (from the original project layout).
 #
-# Do NOT glob this directory. Only the 25 files below are compiled; the other
-# 39 *.cpp files in Source/ are textually #included by the *set.cpp files
+# Do NOT glob this directory. Only the files below are compiled; the other
+# *.cpp files in Source/ are textually #included by the *set.cpp files
 # (charset.cpp does #include "char.cpp", itemset.cpp includes item.cpp, ...),
 # exactly as the original Autotools build split them. A glob would compile
 # those twice and fail at link time with duplicate symbols.
+#
+# wildernesstest.cpp is the guarded `--wildernesstest` diagnostic, a separate
+# translation unit so main.cpp stays small; with -DIVAN_WILDERNESS_TEST=OFF it
+# compiles to nothing.
 
 add_executable(ivan
   Source/actset.cpp
@@ -23,6 +27,7 @@ add_executable(ivan
   Source/itemset.cpp
   Source/levelset.cpp
   Source/main.cpp
+  Source/wildernesstest.cpp
   Source/materset.cpp
   Source/message.cpp
   Source/object.cpp

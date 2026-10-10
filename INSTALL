@@ -33,6 +33,8 @@ Useful cache options (pass them to cmake -S/-B or with cmake-gui):
 
    -DIVAN_WIZARD=ON            enable wizard/cheat mode, as the old
                                Windows builds did (default OFF)
+   -DIVAN_WILDERNESS_TEST=ON   build the headless wilderness diagnostic
+                               (default OFF; POSIX only; see below)
    -DIVAN_INSTALL_PERMS=ON     old "make install" extras that need root:
                                chown/chgrp the highscore file, Bones/ and the
                                binary to the "games" group, and set the
@@ -49,6 +51,182 @@ Note: DATADIR and LOCAL_STATE_DIR are baked into the binary, as they
 always were, so they are taken from the configure step -- installing
 with a different --prefix than the configured CMAKE_INSTALL_PREFIX
 moves the files but not the paths the game looks for.
+
+Wilderness diagnostic mode
+--------------------------
+
+Configure with -DIVAN_WILDERNESS_TEST=ON and run the binary with
+`--wildernesstest [seeds]` (default 10, valid range 1..4096; anything
+else is rejected before the run starts). It generates every wilderness
+biome for that many deterministic seeds in one process and checks:
+
+ - the encoded tile/slot boundaries, including that no tile maps onto
+   the reserved world-map index, and that every slot it asks for is
+   inside the container;
+ - container capacity and profile validation: the shipped profile is
+   accepted, a short container is rejected with a reason, a profile
+   belonging to an original dungeon is rejected rather than silently
+   agreed to, a container carrying another biome's profile is rejected
+   too, and a per-level override that is not that container's biome is
+   refused before a map is built; no original destination is claimed by
+   a wilderness container and every other scripted destination still
+   resolves;
+ - per biome, per seed: the arrival square is the centre and is walkable
+   (except on water), a walkable flood fill from it reaches the map
+   edge, and a four-square-wide route (the same footprint-aware movement
+   a large follower uses, not a literal straight band) reaches all four
+   edges;
+ - every creature standing on the map matches that biome's whitelist,
+   resolved from the character's own configuration (class name plus
+   adjective) rather than from a script array position, and every
+   decoration carries a configuration that belongs to the biome;
+ - vegetation, obstacle and water distribution: biomes whose generator
+   always plants or builds are checked per seed, the stochastic ones
+   are checked across the batch and required to reach several map
+   cells, every ocean seed on its own must be mostly water, and the
+   forests' decoration coverage must fall inside broad intended bands
+   (roughly 13-35% for a jungle and 8-30% for the temperate forests)
+   rather than collapse back to a few isolated groves, as a connected
+   forest matrix also keeps a good fraction of the map in or next to
+   vegetation;
+ - the desert oasis, searched for separately across up to 64 seeds so
+   that a single-seed run still covers it;
+ - a save/load round trip of a level file: the serialized statistics
+   come back exactly as written, the enchantment chances that
+   level::Save() omits are re-derived from the script (checked on both a
+   wilderness level and an original dungeon level whose script value is
+   non-zero), and the occupants come back identical by id and position;
+   a second load from the same file produces the same population, which
+   is what "generate once, no respawn" means;
+ - a complete game resume through the production game::Init() the
+   "Continue Game" menu drives, run in its own process because Load()
+   builds a new game instead of tearing an old one down: for both an
+   ordinary save and the actual autosave prefix, the .sav and its level
+   file are written, the resume reports success, the player is back in
+   the same area with a mutation (money) and a dropped item intact, the
+   level holds the same population, there are no duplicate entity ids
+   and nothing enabled off the active area, an entity pool tick is safe,
+   and leaving and re-entering the saved area brings back the same
+   population; a save made while standing on the world map reloads
+   through the .wm file the same way;
+ - a refused first entry does not cost a map its one-time environment:
+   each named destination (Attnam, New Attnam and the lair) is generated
+   and refused before anybody can stand on it, then entered for real;
+   the weather it was born with has to be there, both straight away and
+   after the map is written out and reloaded, and after a complete
+   save/load;
+ - travel: a walking player is refused an all-water area, a companion
+   that cannot stand on the destination refuses the whole transfer, both
+   leaving the source area and every detached traveller exactly where
+   they were; a companion that can follow is transferred with everybody
+   on a square they can move on and that is free for their own
+   footprint; a fully obstructed arrival square either finds another
+   place to stand or refuses with the source untouched; an original
+   dungeon and an original town transfer go through the same code path
+   with the same placement checks; the `>` command itself (not merely
+   the API it calls) enters a walkable biome tile and refuses an ocean
+   one; and the sumo mirror's caller-supplied-player transfer works in
+   both directions;
+ - a multi-square follower: one that fits nowhere in a one-square-wide
+   destination refuses the transfer, while a single-square one is
+   accepted, so the whole footprint and not just the anchor square is
+   what gets reserved;
+ - a refused destination is released rather than parked: the container
+   keeps no loaded level, the refused map has been written out, the
+   enabled population across all teams is unchanged, an ordinary entity
+   pool tick is safe with only the active area live, and re-entering
+   reloads exactly what was written;
+ - the global rain binding: it is installed when a freshly generated
+   town is entered, it survives the destruction of a rainy source when
+   that town is left, it comes back when the town is reloaded, and it is
+   restored exactly when a newly generated or an already loaded
+   destination is refused;
+ - the world map: entering a biome tile from a synthetic world map, being
+   refused an ocean tile, and walking back off the edge onto the very
+   same world tile, with a follower that came along carried back in the
+   world group; the return entries are carried by area serialization and
+   survive the map being written out and read back;
+ - the day/night cycle of an outdoor area, by driving the game tick
+   through both halves and checking the sun and ambient luminance;
+ - save cleanup: RemoveSaves() in both its death ("autosave only") and
+   full forms never probes the reserved world-map slot, removes exactly
+   the generated slots' files for the name it was given, and leaves the
+   reserved name and an ungenerated slot's stray file alone;
+ - an autosave is actually written, into the isolated directory;
+ - the startup checks abort (exit status 4) for a reserved level slot,
+   for a capacity mismatch, for a biome mismatch and for a per-level
+   override that is not a wilderness profile, with a control case that
+   must exit 0.
+
+It exits non-zero if any check fails and needs no display, so it can be
+scripted:
+
+   cmake -S . -B build-wild -DIVAN_BACKEND=sdl3 -DIVAN_WILDERNESS_TEST=ON
+   cmake --build build-wild -j
+   SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+     timeout 1800 ./build-wild/ivan --wildernesstest 50
+
+The run is bounded by the command's own timeout as well as by the seed
+range, so a hang cannot be mistaken for a pass.
+
+Everything the run writes goes into a fresh /tmp/ivan-wildtest-XXXXXX
+directory. The working directory and $HOME are taken over before
+ivanconfig::Initialize() and the rest of startup run, so no ordinary
+configuration or save file is even read; a run that cannot establish
+that environment stops instead of falling back on the real one. The
+directory is deleted and checked gone before the result is printed, and
+a run that is killed or crashes before that point leaves it behind for
+inspection.
+
+Because it drives the game through POSIX process, environment and file
+APIs, `-DIVAN_WILDERNESS_TEST=ON` is only offered on POSIX platforms;
+the option-off build is unaffected everywhere.
+
+Not covered: the interactive menu layer -- picking an option from a
+list, and cancelling the "do you want to leave?" prompt that the real
+edge walk asks before it travels (the `>` command itself is driven
+directly, and the world return uses the same production expression the
+edge walk in char.cpp builds). Save cleanup is checked against isolated
+files rather than through a full death-and-restart of a real character.
+Bones never apply, because wilderness profiles do not enable them. Most
+travel tests neutralise the player/monster team relation so that
+placement and not line of sight decides the outcome; the "you can't
+escape with hostiles nearby" rule has its own dedicated case, which
+asserts the refusal and the restored source.
+
+A refused transfer restores the source's occupants, their coordinates
+and its rain binding. It does not undo side effects that already
+happened before the refusal was known: a follower's voluntary action
+may have been terminated and a "follows you" message may have been
+shown. The transaction is about where everybody ends up, not about
+replaying the turn.
+
+`--wildernessabort <case>` and `--wildernessresume <phase> <name>` are
+internal entry points used by the run above to exercise the abort and
+save/resume cases in child processes; they are not meant to be called
+directly.
+
+Save compatibility: this change bumps SAVE_FILE_VERSION to 120 and
+BONE_FILE_VERSION to 106. Level files gained one serialized field
+(`level::FirstEntryInitDone`) and the world-map return entries are
+carried once by the base area serialization. The version gate rejects a
+mismatched .sav, an incompatible bone file is discarded and regenerated,
+and a development build from before this change has to start a new game.
+The version gate is not a comprehensive integrity check for the
+subordinate level files.
+
+A note on configuration ids: a script entry's `Config <number>` is an
+explicit id read from the file (Script/char.dat and friends) and copied
+into the database, while the position of that database inside
+`GetConfigData()` is a separate, compact array offset that the parser
+assigns as it reads. Preserving the script id keeps it a stable key;
+the array offset shifts as soon as any earlier configuration is added
+or removed and cannot be used as one. The biome population tables
+therefore select by prototype name plus adjective, and the diagnostic
+above reads the class name and adjective straight off the character's
+own database rather than indexing `GetConfigData()` with an offset.
+Using explicit ids plus validation instead of display strings is a
+reasonable future cleanup, not a correctness requirement today.
 
 --------------------------------------
 

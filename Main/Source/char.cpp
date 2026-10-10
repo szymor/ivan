@@ -1290,7 +1290,9 @@ truth character::TryMove(v2 MoveVector, truth Important, truth Run)
 	  return true;
 	}
 
-	if(game::TryTravel(WORLD_MAP, WORLD_MAP, game::GetCurrentDungeonIndex()))
+	if(game::TryTravel(WORLD_MAP, WORLD_MAP, game::IsWildernessDungeon(game::GetCurrentDungeonIndex())
+							    ? WildernessReturnEntry(WildernessTileIDFromSlot(game::GetCurrentLevelIndex()))
+							    : game::GetCurrentDungeonIndex()))
 	  return true;
       }
 
@@ -7008,26 +7010,40 @@ item* character::SearchForItem(const sweaponskill* SWeaponSkill) const
   return 0;
 }
 
-void character::PutNear(v2 Pos)
+/* Returns false when no usable square exists; callers that must not lose a
+   character have to react to that instead of assuming it succeeded. */
+truth character::PutNear(v2 Pos)
 {
-  v2 NewPos = game::GetCurrentLevel()->GetNearestFreeSquare(this, Pos, false);
+  level* Level = game::GetCurrentLevel();
+
+  if(!Level)
+    return false;
+
+  v2 NewPos = Level->GetNearestFreeSquare(this, Pos, false);
+
+  /* Last resort: the whole map, still movement- and footprint-aware, rather
+     than a random square that may be unusable for this character. */
+  if(NewPos == ERROR_V2)
+    NewPos = Level->FindTravelDestination(this, Pos);
 
   if(NewPos == ERROR_V2)
-    do
-    {
-      NewPos = game::GetCurrentLevel()->GetRandomSquare(this);
-    }
-    while(NewPos == Pos);
+    return false;
 
   PutTo(NewPos);
+  return true;
 }
 
-void character::PutToOrNear(v2 Pos)
+truth character::PutToOrNear(v2 Pos)
 {
-  if(game::IsInWilderness() || (CanMoveOn(game::GetCurrentLevel()->GetLSquare(Pos)) && IsFreeForMe(game::GetCurrentLevel()->GetLSquare(Pos))))
+  if(game::IsInWilderness()
+     || (CanMoveOn(game::GetCurrentLevel()->GetLSquare(Pos))
+	 && IsFreeForMe(game::GetCurrentLevel()->GetLSquare(Pos))))
+  {
     PutTo(Pos);
-  else
-    PutNear(Pos);
+    return true;
+  }
+
+  return PutNear(Pos);
 }
 
 void character::PutTo(v2 Pos)

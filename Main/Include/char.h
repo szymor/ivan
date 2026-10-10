@@ -839,8 +839,8 @@ class character : public entity, public id
   truth IsPet() const;
   virtual void PutTo(v2);
   void PutTo(lsquare*);
-  void PutNear(v2);
-  void PutToOrNear(v2);
+  truth PutNear(v2);
+  truth PutToOrNear(v2);
   virtual void Remove();
   truth IsSmall() const { return SquaresUnder == 1; }
   truth IsOver(v2) const;

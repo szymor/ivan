@@ -41,6 +41,11 @@ class ivanconfig
   static col24 GetContrastLuminance() { return ContrastLuminance; }
   static void Initialize();
   static void Show();
+#ifdef WILDERNESS_TEST_HARNESS
+  /* Lets the diagnostic drive the real autosave path without touching the
+     user's own configuration file. */
+  static void SetAutoSaveIntervalForTest(long What) { AutoSaveIntervalChanger(&AutoSaveInterval, What); }
+#endif
  private:
   static v2 GetQuestionPos();
   static void AutoSaveIntervalDisplayer(const numberoption*, festring&);

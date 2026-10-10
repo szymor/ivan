@@ -158,6 +158,7 @@ class level : public area
   void FiatLux();
   int GetIdealPopulation() const { return IdealPopulation; }
   double GetDifficulty() const { return Difficulty; }
+  int GetMonsterGenerationInterval() const { return MonsterGenerationInterval; }
   void GenerateNewMonsters(int, truth = true);
   void AttachPos(int, int);
   void AttachPos(v2 Pos) { AttachPos(Pos.X, Pos.Y); }
@@ -174,7 +175,7 @@ class level : public area
   void SetRoom(int, room*);
   void AddRoom(room*);
   void Explosion(character*, const festring&, v2, int, truth = true);
-  truth CollectCreatures(charactervector&, character*, truth);
+  truth CollectCreatures(charactervector&, character*, truth, std::vector<v2>* = 0);
   void ApplyLSquareScript(const squarescript*);
   virtual void Draw(truth) const;
   v2 GetEntryPos(const character*, int) const;
@@ -208,12 +209,41 @@ class level : public area
   void GenerateEvergreenForest();
   void GenerateTundra();
   void GenerateGlacier();
+  void GenerateOcean();
+  void GenerateWilderness();
+  void InitializeRuntimeStats();
+  void RestoreNonSerializedStats();
+  void PopulateWilderness(v2);
+  void PrepareWildernessEntry();
+  int GetWildernessGroundConfig() const;
+  void ForceWildernessExitRoutes();
+  truth WildernessRouteExists(v2, v2) const;
+  truth WildernessWideRouteExists(v2, v2) const;
+  truth WildernessSquareReachable(v2, v2, int) const;
+  void CarveWildernessTrail(v2, v2, int);
+  void MakeWildernessPassable(int, int, int, truth);
+  character* SpawnWildernessAnimal(const char*, const char*, v2);
+  v2 FindWildernessSpawnSquare(const character*, v2, int) const;
+  v2 FindTravelDestination(const character*, v2) const;
   void CreateTunnelNetwork(int, int, int, int, v2);
   void SetWalkability(v2 Pos, int What) { WalkabilityMap[Pos.X][Pos.Y] = What; }
   node* FindRoute(v2, v2, const std::set<v2>&, int, const character* = 0);
   void AddToAttachQueue(v2);
   void CollectEverything(itemvector&, charactervector&);
   void CreateGlobalRain(liquid*, v2);
+  /* True until the player-facing part of the first entry (the automatic reveal,
+     chiefly) has run on a map that was freshly generated. It is serialized so
+     that a refused first entry -- whose map is written out and unloaded before
+     anybody stands on it -- still gets that processing when the map is finally
+     entered, instead of looking like an already-visited map. Environmental
+     state that belongs to the map itself (rain) is created at generation and
+     needs no such flag. */
+  truth IsFirstEntryInitDone() const { return FirstEntryInitDone; }
+  void SetFirstEntryInitDone(truth What) { FirstEntryInitDone = What; }
+  /* The binding this area owns, as opposed to whichever one is currently
+     installed as game::GlobalRainLiquid while a transfer is in flight. */
+  liquid* GetGlobalRainLiquid() const { return GlobalRainLiquid; }
+  v2 GetGlobalRainSpeed() const { return GlobalRainSpeed; }
   void CheckSunLight();
   col24 GetSunLightEmitation() const { return SunLightEmitation; }
   void InitSquarePartEmitationTicks();
@@ -233,6 +263,15 @@ class level : public area
   olterrain* GetRandomFountainWithWater(olterrain*) const;
   int GetEnchantmentMinusChance() { return EnchantmentMinusChance; }
   int GetEnchantmentPlusChance() { return EnchantmentPlusChance; }
+#ifdef WILDERNESS_TEST_HARNESS
+  /* Deliberately corrupt the fields the diagnostic round-trips: serialized ones
+     must come back exactly as written, nonserialized ones as the profile says. */
+  void SetDifficultyForTest(double What) { Difficulty = What; }
+  void SetMonsterGenerationIntervalForTest(int What) { MonsterGenerationInterval = What; }
+  void SetIdealPopulationForTest(int What) { IdealPopulation = What; }
+  void SetEnchantmentMinusChanceForTest(int What) { EnchantmentMinusChance = What; }
+  void SetEnchantmentPlusChanceForTest(int What) { EnchantmentPlusChance = What; }
+#endif
   void Amnesia(int);
   spawnresult SpawnMonsters(characterspawner, team*, v2, int = 0, int = 1, truth = false);
  protected:
@@ -268,6 +307,7 @@ class level : public area
   col24 NightAmbientLuminance;
   int EnchantmentMinusChance;
   int EnchantmentPlusChance;
+  truth FirstEntryInitDone;
 };
 
 outputfile& operator<<(outputfile&, const level*);

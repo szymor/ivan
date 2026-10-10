@@ -42,6 +42,11 @@ class commandsystem
 {
  public:
   static command* GetCommand(int I) { return Command[I]; }
+#ifdef WILDERNESS_TEST_HARNESS
+  /* Exposes the real command handler so the diagnostic can exercise the `>`
+     path itself, not merely the API it happens to call. */
+  static truth TestGoDown(character* Char) { return GoDown(Char); }
+#endif
  private:
   static truth Apply(character*);
   static truth Close(character*);

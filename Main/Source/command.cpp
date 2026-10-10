@@ -162,7 +162,17 @@ truth commandsystem::GoDown(character* Char)
   if(!Terrain)
   {
     if(game::IsInWilderness())
+    {
+      if(game::TryEnterWilderness(Char->GetPos()))
+      {
+	Char->EditExperience(AGILITY, 150, 1 << 6);
+	Char->EditNP(-10);
+	Char->EditAP(-100000 / APBonus(Char->GetAttribute(AGILITY)));
+	return true;
+      }
+
       ADD_MESSAGE("There seems to be nothing of interest here.");
+    }
     else
       ADD_MESSAGE("You can't go down.");
 

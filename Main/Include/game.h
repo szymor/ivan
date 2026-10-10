@@ -287,9 +287,54 @@ class game
   static int Menu(bitmap*, v2, const festring&, const festring&, col16, const festring& = "", const festring& = "");
   static void InitDangerMap();
   static const dangermap& GetDangerMap();
+  /* The area a transfer starts from. LeaveArea() detaches the player and the
+     travelling group from it but deliberately does not commit it to disk: the
+     source is only saved once the destination has proved that it can host
+     everyone. Until then an unusable destination can be refused with the
+     source still playable and nobody moved; RestoreTravelSource() documents
+     the exact scope of that guarantee. */
+  struct travelsource
+  {
+    travelsource() : Commit(false), Wilderness(false), DungeonIndex(0),
+		     LevelIndex(0), Level(0), Area(0), LSquareMap(0),
+		     WSquareMap(0), PlayerPos(ERROR_V2), RainLiquid(0),
+		     RainSpeed(0, 0) { }
+    truth Commit;            /* EnterArea() must save this source itself */
+    truth Wilderness;        /* source was the world map */
+    int DungeonIndex;
+    int LevelIndex;
+    level* Level;
+    area* Area;
+    lsquare*** LSquareMap;
+    wsquare*** WSquareMap;
+    v2 PlayerPos;
+    std::vector<v2> GroupPositions;
+    /* Loading or discarding the destination rebinds the global rain, so a
+       refused transfer has to be able to put the source's own binding back. */
+    liquid* RainLiquid;
+    v2 RainSpeed;
+  };
   static truth TryTravel(int, int, int, truth = false, truth = true);
-  static truth LeaveArea(charactervector&, truth, truth);
-  static void EnterArea(charactervector&, int, int);
+  static truth LeaveArea(charactervector&, truth, truth, std::vector<v2>* = 0);
+  /* Returns false when the destination cannot accept the player or one of the
+     travelling companions. The caller must then restore the source; nothing,
+     including camera/LOS updates, autosave and step signals, has run yet. */
+  static truth EnterArea(charactervector&, int, int,
+			 const travelsource& = travelsource());
+  /* Creates the environmental state that belongs to a freshly generated map
+     (rain) before anybody has stood on it, so a refused entry still carries it
+     when it is written out. Player-facing first-entry effects are handled in
+     EnterArea() itself. */
+  static void InitializeLevelEnvironment();
+  /* Works out where everyone may stand before anything is moved. Temporarily
+     places the player and each companion so that footprints and reservations
+     are enforced by IsFreeForMe(), then removes them again; on success the
+     caller re-places them at exactly these coordinates. */
+  static truth PlanAreaPlacement(charactervector&, v2, v2&, std::vector<v2>&);
+  static void CommitTravelSource(const travelsource&);
+  static void RestoreTravelSource(const travelsource&, charactervector&);
+  static truth IsWildernessDungeon(int I) { return I >= WILDERNESS_DUNGEON_FIRST && I <= WILDERNESS_DUNGEON_LAST; }
+  static truth TryEnterWilderness(v2);
   static int CompareLights(col24, col24);
   static int CompareLightToInt(col24, col24);
   static void CombineLights(col24&, col24);
@@ -328,6 +373,26 @@ class game
   static void SetCurrentLevel(level* What) { CurrentLevel = What; }
   static void SetCurrentWSquareMap(wsquare*** What) { CurrentWSquareMap = What; }
   static void SetCurrentLSquareMap(lsquare*** What) { CurrentLSquareMap = What; }
+#ifdef WILDERNESS_TEST_HARNESS
+  /* The diagnostic bootstraps exactly the globals game::Init()/game::Load()
+     would set, without going through the interactive menu. */
+  static void SetCurrentDungeonIndex(int What) { CurrentDungeonIndex = What; }
+  static void SetCurrentLevelIndex(int What) { CurrentLevelIndex = What; }
+  static void SetWorldMapForTest(worldmap* What) { WorldMap = What; }
+  static void SetAutoSaveFileNameForTest(const festring& What) { AutoSaveFileName = What; }
+  /* Level files are named after PlayerName via SaveName(); a subprocess phase
+     that saves and reloads has to use the same name on both sides. */
+  static void SetPlayerNameForTest(const festring& What) { PlayerName = What; }
+  /* Forces the next destination placement to fail. Some environments worth
+     testing are not reliably unplaceable for any ordinary companion (a town
+     with a lake, a cave that may hold water), and seeding a map just to make
+     the search fail would be fragile; this keeps a refused first entry
+     deterministic while exercising the very same refuse-save-unload path. */
+  static void ForcePlacementFailureForTest() { PlacementFailureForced = true; }
+  /* level::CheckSunLight() derives the whole day/night cycle from the tick, so
+     the diagnostic has to be able to place it on a chosen part of the cycle. */
+  static void SetTickForTest(ulong What) { Tick = What; }
+#endif
   static festring& GetDefaultPolymorphTo() { return DefaultPolymorphTo; }
   static festring& GetDefaultSummonMonster() { return DefaultSummonMonster; }
   static festring& GetDefaultChangeMaterial() { return DefaultChangeMaterial; }
@@ -386,6 +451,8 @@ class game
   static rain* ConstructGlobalRain();
   static void SetGlobalRainLiquid(liquid* What) { GlobalRainLiquid = What; }
   static void SetGlobalRainSpeed(v2 What) { GlobalRainSpeed = What; }
+  static liquid* GetGlobalRainLiquid() { return GlobalRainLiquid; }
+  static v2 GetGlobalRainSpeed() { return GlobalRainSpeed; }
   static truth PlayerIsSumoChampion() { return PlayerSumoChampion; }
   static v2 GetSunLightDirectionVector();
   static int CalculateMinimumEmitationRadius(col24);
@@ -458,6 +525,9 @@ class game
   static v2 CursorPos;
   static truth Zoom;
   static truth Generating;
+#ifdef WILDERNESS_TEST_HARNESS
+  static truth PlacementFailureForced;
+#endif
   static dangermap DangerMap;
   static int NextDangerIDType;
   static int NextDangerIDConfigIndex;

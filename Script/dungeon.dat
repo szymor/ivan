@@ -21,7 +21,7 @@
 
 /* Team and dungeon data for the game */
 
-Dungeons = 4;
+Dungeons = 12;
 Teams = 12;
 
 /*
@@ -3005,4 +3005,317 @@ Dungeon UNDER_WATER_TUNNEL;
   /*Level SPIDER_LEVEL;
   {
   }*/
+}
+
+/*
+ * Internal biome containers for enterable world-map tiles. These are storage
+ * containers, not extra locations on the world map. Every tile of a given
+ * biome stores its generated local area in the matching container, addressed
+ * by a coordinate-derived level index. The actual terrain and population are
+ * built by level::GenerateWilderness(), so these profiles only carry size,
+ * flags, descriptions, and the biome generator Type.
+ */
+
+Dungeon WILDERNESS_JUNGLE;
+{
+  Levels = 16385;
+  Description = "tropical jungle";
+  ShortDescription = "Jungle";
+
+  LevelDefault
+  {
+    Size = 64, 48;
+    Rooms = 0;
+    Items = 0;
+    GenerateMonsters = false;
+    IsOnGround = true;
+    AutoReveal = false;
+    TeamDefault = MONSTER_TEAM;
+    LOSModifier = 48;
+    IgnoreDefaultSpecialSquares = true;
+    DifficultyBase = 0;
+    DifficultyDelta = 0;
+    MonsterAmountBase = 0;
+    MonsterAmountDelta = 0;
+    MonsterGenerationIntervalBase = 0;
+    MonsterGenerationIntervalDelta = 0;
+    CanGenerateBone = false;
+    ItemMinPriceBase = 0;
+    ItemMinPriceDelta = 0;
+    EnchantmentMinusChanceBase = 0;
+    EnchantmentMinusChanceDelta = 0;
+    EnchantmentPlusChanceBase = 0;
+    EnchantmentPlusChanceDelta = 0;
+    FillSquare = solidterrain(GRASS_TERRAIN), 0;
+    Type = JUNGLE;
+    Description = "tropical jungle";
+    ShortDescription = "Jungle";
+    BackGroundType = GREEN_FRACTAL;
+  }
+}
+
+Dungeon WILDERNESS_LEAFY_FOREST;
+{
+  Levels = 16385;
+  Description = "leafy forest";
+  ShortDescription = "Forest";
+
+  LevelDefault
+  {
+    Size = 64, 48;
+    Rooms = 0;
+    Items = 0;
+    GenerateMonsters = false;
+    IsOnGround = true;
+    AutoReveal = false;
+    TeamDefault = MONSTER_TEAM;
+    LOSModifier = 48;
+    IgnoreDefaultSpecialSquares = true;
+    DifficultyBase = 0;
+    DifficultyDelta = 0;
+    MonsterAmountBase = 0;
+    MonsterAmountDelta = 0;
+    MonsterGenerationIntervalBase = 0;
+    MonsterGenerationIntervalDelta = 0;
+    CanGenerateBone = false;
+    ItemMinPriceBase = 0;
+    ItemMinPriceDelta = 0;
+    EnchantmentMinusChanceBase = 0;
+    EnchantmentMinusChanceDelta = 0;
+    EnchantmentPlusChanceBase = 0;
+    EnchantmentPlusChanceDelta = 0;
+    FillSquare = solidterrain(GRASS_TERRAIN), 0;
+    Type = LEAFY_FOREST;
+    Description = "leafy forest";
+    ShortDescription = "Forest";
+    BackGroundType = GREEN_FRACTAL;
+  }
+}
+
+Dungeon WILDERNESS_EVERGREEN_FOREST;
+{
+  Levels = 16385;
+  Description = "evergreen forest";
+  ShortDescription = "Pine wood";
+
+  LevelDefault
+  {
+    Size = 64, 48;
+    Rooms = 0;
+    Items = 0;
+    GenerateMonsters = false;
+    IsOnGround = true;
+    AutoReveal = false;
+    TeamDefault = MONSTER_TEAM;
+    LOSModifier = 48;
+    IgnoreDefaultSpecialSquares = true;
+    DifficultyBase = 0;
+    DifficultyDelta = 0;
+    MonsterAmountBase = 0;
+    MonsterAmountDelta = 0;
+    MonsterGenerationIntervalBase = 0;
+    MonsterGenerationIntervalDelta = 0;
+    CanGenerateBone = false;
+    ItemMinPriceBase = 0;
+    ItemMinPriceDelta = 0;
+    EnchantmentMinusChanceBase = 0;
+    EnchantmentMinusChanceDelta = 0;
+    EnchantmentPlusChanceBase = 0;
+    EnchantmentPlusChanceDelta = 0;
+    FillSquare = solidterrain(GRASS_TERRAIN), 0;
+    Type = EVERGREEN_FOREST;
+    Description = "evergreen forest";
+    ShortDescription = "Pine wood";
+    BackGroundType = GREEN_FRACTAL;
+  }
+}
+
+Dungeon WILDERNESS_STEPPE;
+{
+  Levels = 16385;
+  Description = "grassy steppe";
+  ShortDescription = "Steppe";
+
+  LevelDefault
+  {
+    Size = 64, 48;
+    Rooms = 0;
+    Items = 0;
+    GenerateMonsters = false;
+    IsOnGround = true;
+    AutoReveal = false;
+    TeamDefault = MONSTER_TEAM;
+    LOSModifier = 48;
+    IgnoreDefaultSpecialSquares = true;
+    DifficultyBase = 0;
+    DifficultyDelta = 0;
+    MonsterAmountBase = 0;
+    MonsterAmountDelta = 0;
+    MonsterGenerationIntervalBase = 0;
+    MonsterGenerationIntervalDelta = 0;
+    CanGenerateBone = false;
+    ItemMinPriceBase = 0;
+    ItemMinPriceDelta = 0;
+    EnchantmentMinusChanceBase = 0;
+    EnchantmentMinusChanceDelta = 0;
+    EnchantmentPlusChanceBase = 0;
+    EnchantmentPlusChanceDelta = 0;
+    FillSquare = solidterrain(GRASS_TERRAIN), 0;
+    Type = STEPPE;
+    Description = "grassy steppe";
+    ShortDescription = "Steppe";
+    BackGroundType = GRAY_FRACTAL;
+  }
+}
+
+Dungeon WILDERNESS_DESERT;
+{
+  Levels = 16385;
+  Description = "sandy desert";
+  ShortDescription = "Desert";
+
+  LevelDefault
+  {
+    Size = 64, 48;
+    Rooms = 0;
+    Items = 0;
+    GenerateMonsters = false;
+    IsOnGround = true;
+    AutoReveal = false;
+    TeamDefault = MONSTER_TEAM;
+    LOSModifier = 48;
+    IgnoreDefaultSpecialSquares = true;
+    DifficultyBase = 0;
+    DifficultyDelta = 0;
+    MonsterAmountBase = 0;
+    MonsterAmountDelta = 0;
+    MonsterGenerationIntervalBase = 0;
+    MonsterGenerationIntervalDelta = 0;
+    CanGenerateBone = false;
+    ItemMinPriceBase = 0;
+    ItemMinPriceDelta = 0;
+    EnchantmentMinusChanceBase = 0;
+    EnchantmentMinusChanceDelta = 0;
+    EnchantmentPlusChanceBase = 0;
+    EnchantmentPlusChanceDelta = 0;
+    FillSquare = solidterrain(SAND_TERRAIN), 0;
+    Type = DESERT;
+    Description = "sandy desert";
+    ShortDescription = "Desert";
+    BackGroundType = YELLOW_FRACTAL;
+  }
+}
+
+Dungeon WILDERNESS_TUNDRA;
+{
+  Levels = 16385;
+  Description = "frozen tundra";
+  ShortDescription = "Tundra";
+
+  LevelDefault
+  {
+    Size = 64, 48;
+    Rooms = 0;
+    Items = 0;
+    GenerateMonsters = false;
+    IsOnGround = true;
+    AutoReveal = false;
+    TeamDefault = MONSTER_TEAM;
+    LOSModifier = 48;
+    IgnoreDefaultSpecialSquares = true;
+    DifficultyBase = 0;
+    DifficultyDelta = 0;
+    MonsterAmountBase = 0;
+    MonsterAmountDelta = 0;
+    MonsterGenerationIntervalBase = 0;
+    MonsterGenerationIntervalDelta = 0;
+    CanGenerateBone = false;
+    ItemMinPriceBase = 0;
+    ItemMinPriceDelta = 0;
+    EnchantmentMinusChanceBase = 0;
+    EnchantmentMinusChanceDelta = 0;
+    EnchantmentPlusChanceBase = 0;
+    EnchantmentPlusChanceDelta = 0;
+    FillSquare = solidterrain(SNOW_TERRAIN), 0;
+    Type = TUNDRA;
+    Description = "frozen tundra";
+    ShortDescription = "Tundra";
+    BackGroundType = GRAY_FRACTAL;
+  }
+}
+
+Dungeon WILDERNESS_GLACIER;
+{
+  Levels = 16385;
+  Description = "glacier";
+  ShortDescription = "Glacier";
+
+  LevelDefault
+  {
+    Size = 64, 48;
+    Rooms = 0;
+    Items = 0;
+    GenerateMonsters = false;
+    IsOnGround = true;
+    AutoReveal = false;
+    TeamDefault = MONSTER_TEAM;
+    LOSModifier = 48;
+    IgnoreDefaultSpecialSquares = true;
+    DifficultyBase = 0;
+    DifficultyDelta = 0;
+    MonsterAmountBase = 0;
+    MonsterAmountDelta = 0;
+    MonsterGenerationIntervalBase = 0;
+    MonsterGenerationIntervalDelta = 0;
+    CanGenerateBone = false;
+    ItemMinPriceBase = 0;
+    ItemMinPriceDelta = 0;
+    EnchantmentMinusChanceBase = 0;
+    EnchantmentMinusChanceDelta = 0;
+    EnchantmentPlusChanceBase = 0;
+    EnchantmentPlusChanceDelta = 0;
+    FillSquare = solidterrain(SNOW_TERRAIN), 0;
+    Type = GLACIER;
+    Description = "glacier";
+    ShortDescription = "Glacier";
+    BackGroundType = BLUE_FRACTAL;
+  }
+}
+
+Dungeon WILDERNESS_OCEAN;
+{
+  Levels = 16385;
+  Description = "open sea";
+  ShortDescription = "Ocean";
+
+  LevelDefault
+  {
+    Size = 64, 48;
+    Rooms = 0;
+    Items = 0;
+    GenerateMonsters = false;
+    IsOnGround = true;
+    AutoReveal = false;
+    TeamDefault = MONSTER_TEAM;
+    LOSModifier = 48;
+    IgnoreDefaultSpecialSquares = true;
+    DifficultyBase = 0;
+    DifficultyDelta = 0;
+    MonsterAmountBase = 0;
+    MonsterAmountDelta = 0;
+    MonsterGenerationIntervalBase = 0;
+    MonsterGenerationIntervalDelta = 0;
+    CanGenerateBone = false;
+    ItemMinPriceBase = 0;
+    ItemMinPriceDelta = 0;
+    EnchantmentMinusChanceBase = 0;
+    EnchantmentMinusChanceDelta = 0;
+    EnchantmentPlusChanceBase = 0;
+    EnchantmentPlusChanceDelta = 0;
+    FillSquare = liquidterrain(POOL), 0;
+    Type = OCEAN_LEVEL;
+    Description = "open sea";
+    ShortDescription = "Ocean";
+    BackGroundType = BLUE_FRACTAL;
+  }
 }

@@ -19,7 +19,7 @@
 #define ICE_TERRAIN 16
 #define STONE_TERRAIN 32
 
-level::level() : Room(1, static_cast<room*>(0)), GlobalRainLiquid(0), SunLightEmitation(0), AmbientLuminance(0), SquareStack(0), NightAmbientLuminance(0) { }
+level::level() : Room(1, static_cast<room*>(0)), GlobalRainLiquid(0), SunLightEmitation(0), AmbientLuminance(0), SquareStack(0), NightAmbientLuminance(0), EnchantmentMinusChance(0), EnchantmentPlusChance(0), FirstEntryInitDone(false) { }
 void level::SetRoom(int I, room* What) { Room[I] = What; }
 void level::AddToAttachQueue(v2 Pos) { AttachQueue.push_back(Pos); }
 
@@ -45,9 +45,21 @@ level::~level()
 
   delete [] NodeMap;
   delete [] WalkabilityMap;
-  delete GlobalRainLiquid;
   delete [] SquareStack;
-  game::SetGlobalRainLiquid(0);
+
+  /* The global rain binding belongs to whichever area is active, and a level
+     is routinely destroyed while another one already is: committing a source
+     deletes it after the destination has been activated, and a refused
+     destination is released while the source is active again. Clearing it
+     unconditionally would therefore strip the active area of its rain, so only
+     the level that actually owns the current binding may unbind it. */
+  if(game::GetGlobalRainLiquid() && game::GetGlobalRainLiquid() == GlobalRainLiquid)
+  {
+    game::SetGlobalRainLiquid(0);
+    game::SetGlobalRainSpeed(v2(0, 0));
+  }
+
+  delete GlobalRainLiquid;
 }
 
 void level::ExpandPossibleRoute(int OrigoX, int OrigoY, int TargetX, int TargetY, truth XMode)
@@ -294,28 +306,17 @@ void level::Generate(int Index)
   {
    case 0:
     GenerateDungeon(Index);
-    break;
+    return;
    case DESERT:
-    GenerateDesert();
-    break;
    case JUNGLE:
-    GenerateJungle();
-    break;
    case STEPPE:
-    GenerateSteppe();
-    break;
    case LEAFY_FOREST:
-    GenerateLeafyForest();
-    break;
    case EVERGREEN_FOREST:
-    GenerateEvergreenForest();
-    break;
    case TUNDRA:
-    GenerateTundra();
-    break;
    case GLACIER:
-    GenerateGlacier();
-    break;
+   case OCEAN_LEVEL:
+    GenerateWilderness();
+    return;
    default:
     ABORT("You are a terrorist. Please stop creating wterrains that are stupid.");
   }
@@ -666,6 +667,7 @@ void level::Save(outputfile& SaveFile) const
 
   SaveFile << Door << LevelMessage << IdealPopulation << MonsterGenerationInterval << Difficulty;
   SaveFile << SunLightEmitation << SunLightDirection << AmbientLuminance << NightAmbientLuminance;
+  SaveFile << FirstEntryInitDone;
 }
 
 void level::Load(inputfile& SaveFile)
@@ -699,6 +701,7 @@ void level::Load(inputfile& SaveFile)
 
   SaveFile >> Door >> LevelMessage >> IdealPopulation >> MonsterGenerationInterval >> Difficulty;
   SaveFile >> SunLightEmitation >> SunLightDirection >> AmbientLuminance >> NightAmbientLuminance;
+  SaveFile >> FirstEntryInitDone;
   Alloc2D(NodeMap, XSize, YSize);
   Alloc2D(WalkabilityMap, XSize, YSize);
 
@@ -816,8 +819,8 @@ v2 level::GetRandomSquare(const character* Char, int Flags, const rect* Borders)
 
     LSquare = Map[Pos.X][Pos.Y];
 
-    if(((Char ? Char->CanMoveOn(LSquare) : (LSquare->GetWalkability() & WALK)) != !(Flags & NOT_WALKABLE))
-       || ((Char ? Char->IsFreeForMe(LSquare) : !LSquare->GetCharacter()) != !(Flags & HAS_CHARACTER))
+    if(((Char ? !!Char->CanMoveOn(LSquare) : (LSquare->GetWalkability() & WALK)) != !(Flags & NOT_WALKABLE))
+       || ((Char ? !!Char->IsFreeForMe(LSquare) : !LSquare->GetCharacter()) != !(Flags & HAS_CHARACTER))
        || (Flags & ATTACHABLE && FlagMap[Pos.X][Pos.Y] & FORBIDDEN)
        || (Flags & HAS_NO_OTERRAIN && LSquare->GetOTerrain()))
       continue;
@@ -1081,7 +1084,8 @@ int level::TriggerExplosions(int MinIndex)
   return LastExplosion;
 }
 
-truth level::CollectCreatures(charactervector& CharacterArray, character* Leader, truth AllowHostiles)
+truth level::CollectCreatures(charactervector& CharacterArray, character* Leader,
+			      truth AllowHostiles, std::vector<v2>* Positions)
 {
   int c;
 
@@ -1109,7 +1113,11 @@ truth level::CollectCreatures(charactervector& CharacterArray, character* Leader
   for(c = 0; c < game::GetTeams(); ++c)
     if(game::GetTeam(c) == Leader->GetTeam() || Leader->GetTeam()->GetRelation(game::GetTeam(c)) == HOSTILE)
       for(std::list<character*>::const_iterator i = game::GetTeam(c)->GetMember().begin(); i != game::GetTeam(c)->GetMember().end(); ++i)
-	if((*i)->IsEnabled() && *i != Leader
+	/* Only characters standing on this very level can be taken along. A
+	   team member without a square (a world-map group companion, or one
+	   already detached) has no source position to record and must not be
+	   reached for one. */
+	if((*i)->IsEnabled() && *i != Leader && (*i)->GetSquareUnder()
 	   && (TakeAll
 	       || (Leader->CanBeSeenBy(*i)
 		   && Leader->SquareUnderCanBeSeenBy(*i, true)))
@@ -1122,6 +1130,12 @@ truth level::CollectCreatures(charactervector& CharacterArray, character* Leader
 	  if(!(*i)->GetAction())
 	  {
 	    ADD_MESSAGE("%s follows you.", (*i)->CHAR_NAME(DEFINITE));
+
+	    /* Remember where each member stood so an aborted transfer can put
+	       it back exactly where it was. */
+	    if(Positions)
+	      Positions->push_back((*i)->GetPos());
+
 	    CharacterArray.push_back(*i);
 	    (*i)->Remove();
 	  }
@@ -1867,60 +1881,148 @@ void level::GenerateDungeon(int Index)
   CreateItems(LevelScript->GetItems()->Randomize());
 }
 
+/* Smooth, spatially correlated pseudo-random field in 0..1, used to give
+   terrain broad stands and irregular clearings instead of independent per-cell
+   noise or a handful of identical circular discs. Three octaves of bilinearly
+   interpolated random lattices (wide stands, medium structure, ragged edges)
+   are summed with smoothstep easing. */
+struct wildernessterrainnoise
+{
+  static const int Octaves = 3;
+
+  void Init(int XSize, int YSize, const int* Cells)
+  {
+    for(int o = 0; o < Octaves; ++o)
+    {
+      Spacing[o] = Max(1, Cells[o]);
+      GX[o] = XSize / Spacing[o] + 2;
+      GY[o] = YSize / Spacing[o] + 2;
+      Grid[o].assign(GX[o] * GY[o], 0.0);
+
+      for(int i = 0; i < GX[o] * GY[o]; ++i)
+	Grid[o][i] = double(RAND() % 100000) / 100000.0;
+    }
+  }
+
+  double SampleOctave(int o, int X, int Y) const
+  {
+    int CellX = X / Spacing[o];
+    int CellY = Y / Spacing[o];
+    double FX = double(X % Spacing[o]) / Spacing[o];
+    double FY = double(Y % Spacing[o]) / Spacing[o];
+    FX = FX * FX * (3 - 2 * FX);
+    FY = FY * FY * (3 - 2 * FY);
+    const std::vector<double>& G = Grid[o];
+    double A = G[CellY * GX[o] + CellX];
+    double B = G[CellY * GX[o] + CellX + 1];
+    double C = G[(CellY + 1) * GX[o] + CellX];
+    double D = G[(CellY + 1) * GX[o] + CellX + 1];
+    return (A * (1 - FX) + B * FX) * (1 - FY)
+      + (C * (1 - FX) + D * FX) * FY;
+  }
+
+  double At(int X, int Y) const
+  {
+    return 0.5 * SampleOctave(0, X, Y) + 0.3 * SampleOctave(1, X, Y)
+      + 0.2 * SampleOctave(2, X, Y);
+  }
+
+  int Spacing[Octaves];
+  int GX[Octaves];
+  int GY[Octaves];
+  std::vector<double> Grid[Octaves];
+};
+
+/* The field value at a chosen percentile, so a generator can ask for a target
+   coverage instead of guessing an absolute threshold that depends on the
+   field's distribution. */
+double WildernessCoverageThreshold(const wildernessterrainnoise& Field,
+				  int XSize, int YSize, double Coverage)
+{
+  std::vector<double> Values;
+  Values.reserve(XSize * YSize);
+
+  for(int x = 0; x < XSize; ++x)
+    for(int y = 0; y < YSize; ++y)
+      Values.push_back(Field.At(x, y));
+
+  std::sort(Values.begin(), Values.end());
+  int Index = int((1.0 - Coverage) * Values.size());
+
+  if(Index < 0)
+    Index = 0;
+
+  if(Index >= int(Values.size()))
+    Index = int(Values.size()) - 1;
+
+  return Values[Index];
+}
+
+/* A coherent pool of water, clearing any decoration the cell may already
+   carry. Used for the occasional wet patch rather than single-cell dots. */
+void WildernessPlaceWater(lsquare*** Map, v2 Center, int Radius, int Config,
+			  int XSize, int YSize)
+{
+  for(int dx = -Radius; dx <= Radius; ++dx)
+    for(int dy = -Radius; dy <= Radius; ++dy)
+    {
+      v2 Pos = Center + v2(dx, dy);
+
+      if(Pos.X < 0 || Pos.Y < 0 || Pos.X >= XSize || Pos.Y >= YSize)
+	continue;
+
+      if((Pos - Center).GetLengthSquare() > Radius * Radius)
+	continue;
+
+      Map[Pos.X][Pos.Y]->ChangeOLTerrain(0);
+      Map[Pos.X][Pos.Y]->ChangeGLTerrain(liquidterrain::Spawn(Config));
+    }
+}
+
 void level::GenerateJungle()
 {
-  int x,y;
+  int x, y;
+
+  /* A broad, correlated canopy rather than fourteen palm discs: the noise
+     field is thresholded at a percentile so the target coverage is met on
+     every seed, while the stands stay large, uneven and ragged-edged. */
+  const int Cells[3] = { 11, 6, 3 };
+  wildernessterrainnoise Canopy, Species;
+  Canopy.Init(XSize, YSize, Cells);
+  Species.Init(XSize, YSize, Cells);
+  double Threshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.26);
+  double DarkThreshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.38);
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
+      /* Dark, damp ground follows the canopy instead of per-cell speckling,
+	 so thickets read as thickets. */
+      Map[x][y]->SetLTerrain(solidterrain::Spawn(
+	Canopy.At(x, y) >= DarkThreshold ? DARK_GRASS_TERRAIN : GRASS_TERRAIN), 0);
+
+  /* One or two coherent pools or wet depressions, not three lone dots. The
+     count scales with the map area rather than being fixed. */
+  int Pools = Max(1, XSize * YSize / 2500) + RAND_N(2);
+
+  for(int c = 0; c < Pools; ++c)
+  {
+    v2 Center(4 + RAND_N(Max(1, XSize - 8)), 4 + RAND_N(Max(1, YSize - 8)));
+    WildernessPlaceWater(Map, Center, 2 + RAND_N(3), POOL, XSize, YSize);
+  }
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
     {
-      Map[x][y] = new lsquare(this, v2(x, y));
-      Map[x][y]->SetLTerrain(solidterrain::Spawn(GRASS_TERRAIN), 0);
+      if(Canopy.At(x, y) < Threshold
+	 || !(Map[x][y]->GetWalkability() & WALK))
+	continue;
+
+      if(!(RAND() % 12))
+	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
+      else
+	Map[x][y]->ChangeOLTerrain(decoration::Spawn(
+	  Species.At(x, y) >= 0.5 ? PALM : TEAK));
     }
-
-  for(;;)
-  {
-    CreateTunnelNetwork(1, 4, 20, 120, v2(0, YSize / 2));
-    CreateTunnelNetwork(1, 4, 20, 120, v2(XSize - 1, YSize / 2));
-
-    for(int c = 0; c < 25; ++c)
-    {
-      v2 StartPos;
-
-      switch(RAND_N(5))
-      {
-       case 0:
-	StartPos = v2(RAND_N(XSize), 0);
-	break;
-       case 1:
-	StartPos = v2(RAND_N(XSize), YSize - 1);
-	break;
-       case 2:
-	StartPos = v2(0, RAND_N(YSize));
-	break;
-       case 3:
-	StartPos = v2(XSize - 1, RAND_N(YSize));
-	break;
-       case 4:
-	StartPos = v2(RAND_N(XSize), RAND_N(YSize));
-      }
-
-      CreateTunnelNetwork(1,4,20, 120, StartPos);
-    }
-
-    for(x = 0; x < XSize; ++x)
-    {
-      game::BusyAnimation();
-
-      for(y = 0; y < YSize; ++y)
-      {
-	if(FlagMap[x][y] != PREFERRED)
-	  Map[x][y]->ChangeOLTerrain(wall::Spawn(BRICK_PROPAGANDA));
-	else if(RAND_2)
-	  Map[x][y]->ChangeOLTerrain(decoration::Spawn(PALM));
-      }
-    }
-  }
 }
 
 void level::CreateTunnelNetwork(int MinLength, int MaxLength, int MinNodes, int MaxNodes, v2 StartPos)
@@ -1953,226 +2055,882 @@ void level::CreateTunnelNetwork(int MinLength, int MaxLength, int MinNodes, int 
   }
 }
 
-void level::GenerateDesert()
-{
-  for(int x = 0; x < XSize; ++x)
-    for(int y = 0; y < YSize; ++y)
-    {
-      Map[x][y] = new lsquare(this, v2(x, y));
-      Map[x][y]->SetLTerrain(solidterrain::Spawn(SAND_TERRAIN), 0);
-    }
-
-  game::BusyAnimation();
-  int AmountOfCactuses = RAND_N(10);
-  int c;
-
-  for(c = 0; c < AmountOfCactuses; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(decoration::Spawn(CACTUS));
-
-  int AmountOfBoulders = RAND_N(10);
-
-  for(c = 0; c < AmountOfBoulders; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
-}
-
 void level::GenerateSteppe()
 {
-  for(int x = 0; x < XSize; ++x)
-    for(int y = 0; y < YSize; ++y)
+  int x, y;
+
+  /* Open ground with broad dry/grassy variation, irregular rock outcrops and
+     only a few small sheltered groves. It stays a steppe, not a savanna. */
+  const int Cells[3] = { 18, 9, 4 };
+  wildernessterrainnoise Ground, Rock, Grove;
+  Ground.Init(XSize, YSize, Cells);
+  Rock.Init(XSize, YSize, Cells);
+  Grove.Init(XSize, YSize, Cells);
+  double DarkThreshold = WildernessCoverageThreshold(Ground, XSize, YSize, 0.28);
+  double RockThreshold = WildernessCoverageThreshold(Rock, XSize, YSize, 0.03);
+  double GroveThreshold = WildernessCoverageThreshold(Grove, XSize, YSize, 0.0015);
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
+      Map[x][y]->SetLTerrain(solidterrain::Spawn(
+	Ground.At(x, y) >= DarkThreshold ? DARK_GRASS_TERRAIN : GRASS_TERRAIN), 0);
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
     {
-      Map[x][y] = new lsquare(this, v2(x, y));
-      Map[x][y]->SetLTerrain(solidterrain::Spawn(GRASS_TERRAIN), 0);
+      if(Rock.At(x, y) >= RockThreshold)
+	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
+      else if(Grove.At(x, y) >= GroveThreshold)
+	Map[x][y]->ChangeOLTerrain(decoration::Spawn(RAND_2 ? OAK : BIRCH));
     }
+}
 
-  game::BusyAnimation();
-  int c;
+void level::GenerateDesert()
+{
+  int x, y;
 
-  int AmountOfBoulders = RAND_N(20) + 5;
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
+      Map[x][y]->SetLTerrain(solidterrain::Spawn(SAND_TERRAIN), 0);
 
-  for(c = 0; c < AmountOfBoulders; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
+  /* Rocks grouped into outcrops rather than scattered independently. */
+  const int Cells[3] = { 16, 8, 4 };
+  wildernessterrainnoise Rock;
+  Rock.Init(XSize, YSize, Cells);
+  double RockThreshold = WildernessCoverageThreshold(Rock, XSize, YSize, 0.03);
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
+      if(Rock.At(x, y) >= RockThreshold)
+	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
+
+  /* Sparse cactus, still IVAN's stylized shorthand, but in small clusters
+     whose count scales with the map area. */
+  int Clusters = Max(2, XSize * YSize / 1500) + RAND_N(3);
+
+  for(int c = 0; c < Clusters; ++c)
+  {
+    v2 Center(RAND_N(XSize), RAND_N(YSize));
+    int Count = 1 + RAND_N(3);
+
+    for(int k = 0; k < Count; ++k)
+    {
+      v2 Pos = Center + v2(RAND_N(3) - 1, RAND_N(3) - 1);
+
+      if(IsValidPos(Pos))
+	Map[Pos.X][Pos.Y]->ChangeOLTerrain(decoration::Spawn(CACTUS));
+    }
+  }
+
+  /* A rare oasis with a vegetated margin, not a bare water disc. */
+  if(!(RAND() % 3))
+  {
+    v2 Center(5 + RAND_N(Max(1, XSize - 10)), 5 + RAND_N(Max(1, YSize - 10)));
+    int Radius = 1 + RAND_N(2);
+    WildernessPlaceWater(Map, Center, Radius, POOL, XSize, YSize);
+
+    for(int dx = -Radius - 1; dx <= Radius + 1; ++dx)
+      for(int dy = -Radius - 1; dy <= Radius + 1; ++dy)
+      {
+	v2 Pos = Center + v2(dx, dy);
+
+	if(!IsValidPos(Pos))
+	  continue;
+
+	int Dist = (Pos - Center).GetLengthSquare();
+
+	if(Dist <= Radius * Radius || Dist > (Radius + 1) * (Radius + 1))
+	  continue;
+
+	if((Map[Pos.X][Pos.Y]->GetWalkability() & WALK) && !(RAND() % 2))
+	  Map[Pos.X][Pos.Y]->ChangeOLTerrain(decoration::Spawn(PALM));
+      }
+  }
 }
 
 void level::GenerateLeafyForest()
 {
-  for(int x = 0; x < XSize; ++x)
-    for(int y = 0; y < YSize; ++y)
+  int x, y;
+
+  /* Wider, uneven oak/birch stands with real clearings instead of the same
+     disc geometry as the evergreen forest. Teak is dropped: it is a tropical
+     species and does not belong in a strictly temperate palette. */
+  const int Cells[3] = { 11, 6, 3 };
+  wildernessterrainnoise Canopy, Species;
+  Canopy.Init(XSize, YSize, Cells);
+  Species.Init(XSize, YSize, Cells);
+  double Threshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.19);
+  double RichThreshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.32);
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
+      Map[x][y]->SetLTerrain(solidterrain::Spawn(
+	Canopy.At(x, y) >= RichThreshold ? DARK_GRASS_TERRAIN : GRASS_TERRAIN), 0);
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
     {
-      Map[x][y] = new lsquare(this, v2(x, y));
-      olterrain* OLTerrain;
+      if(Canopy.At(x, y) < Threshold)
+	continue;
 
-      switch(RAND_4)
-      {
-       case 0:
-	if(RAND_8)
-	  OLTerrain = decoration::Spawn(OAK);
-	else
-	  OLTerrain = decoration::Spawn(TEAK);
-	break;
-       case 1:
-	OLTerrain = decoration::Spawn(BIRCH);
-	break;
-       case 2:
-	OLTerrain = 0;
-	if(!RAND_4)
-	  OLTerrain = boulder::Spawn(1 + RAND_2);
-
-	if(!RAND_4)
-	  OLTerrain = boulder::Spawn(3);
-	break;
-       default:
-	OLTerrain = 0;
-      }
-
-      Map[x][y]->SetLTerrain(solidterrain::Spawn(GRASS_TERRAIN), OLTerrain);
+      if(!(RAND() % 10))
+	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
+      else
+	Map[x][y]->ChangeOLTerrain(decoration::Spawn(
+	  Species.At(x, y) >= 0.5 ? OAK : BIRCH));
     }
 }
 
 void level::GenerateEvergreenForest()
 {
-  for(int x = 0; x < XSize; ++x)
-    for(int y = 0; y < YSize; ++y)
+  int x, y;
+
+  /* Denser pine/fir stands with fewer, narrower clearings than the leafy
+     forest, plus connected snow patches in the exposed ground rather than
+     one white cell in eight. */
+  const int Cells[3] = { 10, 5, 3 };
+  const int SnowCells[3] = { 20, 10, 5 };
+  wildernessterrainnoise Canopy, Species, Snow;
+  Canopy.Init(XSize, YSize, Cells);
+  Species.Init(XSize, YSize, Cells);
+  Snow.Init(XSize, YSize, SnowCells);
+  double Threshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.23);
+  double SnowThreshold = WildernessCoverageThreshold(Snow, XSize, YSize, 0.22);
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
+      Map[x][y]->SetLTerrain(solidterrain::Spawn(
+	Snow.At(x, y) >= SnowThreshold ? SNOW_TERRAIN : GRASS_TERRAIN), 0);
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
     {
-      Map[x][y] = new lsquare(this, v2(x, y));
-      olterrain* OLTerrain = 0;
+      if(Canopy.At(x, y) < Threshold)
+	continue;
 
-      switch(RAND_4)
-      {
-       case 0:
-	if(RAND_2)
-	  OLTerrain = decoration::Spawn(PINE);
-	break;
-       case 1:
-	OLTerrain = decoration::Spawn(FIR);
-	break;
-       case 2:
-	if(!RAND_4)
-	  OLTerrain = boulder::Spawn(1 + RAND_2);
-
-	if(!RAND_4)
-	  OLTerrain = boulder::Spawn(3);
-	break;
-      }
-
-      Map[x][y]->SetLTerrain(solidterrain::Spawn(GRASS_TERRAIN), OLTerrain);
+      if(!(RAND() % 9))
+	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
+      else
+	Map[x][y]->ChangeOLTerrain(decoration::Spawn(
+	  Species.At(x, y) >= 0.5 ? PINE : FIR));
     }
 }
 
 void level::GenerateTundra()
 {
-  for(int x = 0; x < XSize; ++x)
-    for(int y = 0; y < YSize; ++y)
-    {
-      Map[x][y] = new lsquare(this, v2(x, y));
-      Map[x][y]->SetLTerrain(solidterrain::Spawn(SNOW_TERRAIN), 0);
-    }
+  int x, y;
 
-  game::BusyAnimation();
-  int c;
-  int AmountOfBoulders = RAND_N(20) + 8;
+  /* Connected exposed ground in the snow rather than an all-white field, plus
+     rock outcrops and sparse dwarf birch. */
+  const int Cells[3] = { 16, 8, 4 };
+  wildernessterrainnoise Exposed, Rock, Grove;
+  Exposed.Init(XSize, YSize, Cells);
+  Rock.Init(XSize, YSize, Cells);
+  Grove.Init(XSize, YSize, Cells);
+  double ExposedThreshold =
+    WildernessCoverageThreshold(Exposed, XSize, YSize, 0.25);
+  double RockThreshold = WildernessCoverageThreshold(Rock, XSize, YSize, 0.04);
+  double GroveThreshold = WildernessCoverageThreshold(Grove, XSize, YSize, 0.006);
 
-  for(c = 0; c < AmountOfBoulders; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
-
-  int AmountOfDwarfBirches = RAND_N(10);
-
-  for(c = 0; c < AmountOfDwarfBirches; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(decoration::Spawn(DWARF_BIRCH));
-}
-
-void level::GenerateGlacier()
-{
-  int x,y;
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
+      Map[x][y]->SetLTerrain(solidterrain::Spawn(
+	Exposed.At(x, y) >= ExposedThreshold ? GRASS_TERRAIN : SNOW_TERRAIN), 0);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
     {
-      Map[x][y] = new lsquare(this, v2(x, y));
+      if(Rock.At(x, y) >= RockThreshold)
+	Map[x][y]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
+      else if(Grove.At(x, y) >= GroveThreshold)
+	Map[x][y]->ChangeOLTerrain(decoration::Spawn(DWARF_BIRCH));
+    }
+}
+
+void level::GenerateGlacier()
+{
+  int x, y;
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
       Map[x][y]->SetLTerrain(solidterrain::Spawn(SNOW_TERRAIN), 0);
+
+  /* Broad, correlated ice fields with wide snow lanes between them, rather
+     than scattered single wall dots pretending to be ridges. Exposed stone is
+     concentrated toward the margins and outcrops instead of being mixed at
+     random through the ice. PrepareWildernessEntry() then validates
+     reachability and carves whatever opening is actually needed, so this
+     generation can never seal the player in. */
+  const int Cells[3] = { 20, 10, 5 };
+  wildernessterrainnoise Ice;
+  Ice.Init(XSize, YSize, Cells);
+  double Threshold = WildernessCoverageThreshold(Ice, XSize, YSize, 0.22);
+  int Margin = 6;
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
+    {
+      if(Ice.At(x, y) >= Threshold)
+      {
+	truth Stone = x < Margin || y < Margin
+	  || x >= XSize - Margin || y >= YSize - Margin;
+	Map[x][y]->ChangeOLTerrain(wall::Spawn(Stone ? STONE_WALL : ICE_WALL));
+      }
+      else if(!(RAND() % 40))
+	Map[x][y]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
     }
+}
 
-  int AmountOfBoulders = RAND_N(20) + 5;
+void level::GenerateOcean()
+{
+  for(int x = 0; x < XSize; ++x)
+    for(int y = 0; y < YSize; ++y)
+      Map[x][y]->SetLTerrain(liquidterrain::Spawn(POOL), 0);
+}
 
-  for(int c = 0; c < AmountOfBoulders; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
+/* Builds a complete outdoor wilderness level for one world-map tile. The
+   biome-specific terrain builders only fill the already allocated squares;
+   this pipeline adds the shared runtime initialization, a guaranteed entry
+   point with routes to the map edges, and the one-time biome population. */
 
-  for(;;)
+void level::GenerateWilderness()
+{
+  const festring* Msg = LevelScript->GetLevelMessage();
+
+  if(Msg)
+    LevelMessage = *Msg;
+
+  /* A tile's encoded coordinate is not dungeon depth: all deltas are zero.
+     Initialize every statistic anyway so save/load never reads garbage when
+     generic monster generation is disabled. */
+  InitializeRuntimeStats();
+  NightAmbientLuminance = MakeRGB24(70, 70, 70);
+
+  switch(*LevelScript->GetType())
   {
-    CreateTunnelNetwork(1,4,20, 120, v2(0,YSize / 2));
-    CreateTunnelNetwork(1,4,20, 120, v2(XSize - 1,YSize / 2));
-
-    for(int c = 0; c < 20; ++c)
-    {
-      v2 StartPos;
-
-      switch(RAND_N(5))
-      {
-       case 0:
-	StartPos = v2(RAND_N(XSize), 0);
-	break;
-       case 1:
-	StartPos = v2(RAND_N(XSize), YSize - 1);
-	break;
-       case 2:
-	StartPos = v2(0, RAND_N(YSize));
-	break;
-       case 3:
-	StartPos = v2(XSize - 1, RAND_N(YSize));
-	break;
-       case 4:
-	StartPos = v2(RAND_N(XSize), RAND_N(YSize));
-      }
-
-      CreateTunnelNetwork(1,4,20, 120, StartPos);
-    }
-
-    for(x = 0; x < XSize; ++x)
-      for(y = 0; y < YSize; ++y)
-	if(FlagMap[x][y] != PREFERRED)
-	  FlagMap[x][y] |= RAND_2 ? ICE_TERRAIN : STONE_TERRAIN;
-
-    for(x = 0; x < XSize; ++x)
-    {
-      game::BusyAnimation();
-
-      for(y = 0; y < YSize; ++y)
-      {
-	if(!(FlagMap[x][y] & PREFERRED))
-	{
-	  int SquaresAround = 0;
-	  int IceAround = 0;
-
-	  for(int d = 0; d < 8; ++d)
-	  {
-	    v2 Pos = v2(x,y) + game::GetMoveVector(d);
-	    if(IsValidPos(Pos) && !(FlagMap[Pos.X][Pos.Y] & PREFERRED))
-	    {
-	      ++SquaresAround;
-	      if(FlagMap[Pos.X][Pos.Y] & ICE_TERRAIN)
-		++IceAround;
-	    }
-	  }
-
-	  if(IceAround > SquaresAround / 2)
-	    FlagMap[x][y] = ICE_TERRAIN;
-	  else
-	    FlagMap[x][y] = STONE_TERRAIN;
-	}
-      }
-    }
-
-    for(x = 0; x < XSize; ++x)
-      for(y = 0; y < YSize; ++y)
-	if(!(FlagMap[x][y] & PREFERRED))
-	{
-	  if(FlagMap[x][y] & ICE_TERRAIN)
-	    GetLSquare(x,y)->ChangeOLTerrain(wall::Spawn(ICE_WALL));
-	  else
-	    GetLSquare(x,y)->ChangeOLTerrain(wall::Spawn(STONE_WALL));
-	}
-
-    break; // Doesn't yet check path in any way
+   case DESERT: GenerateDesert(); break;
+   case JUNGLE: GenerateJungle(); break;
+   case STEPPE: GenerateSteppe(); break;
+   case LEAFY_FOREST: GenerateLeafyForest(); break;
+   case EVERGREEN_FOREST: GenerateEvergreenForest(); break;
+   case TUNDRA: GenerateTundra(); break;
+   case GLACIER: GenerateGlacier(); break;
+   case OCEAN_LEVEL: GenerateOcean(); break;
+   default: ABORT("Unknown wilderness biome type %d!", *LevelScript->GetType());
   }
+
+  PrepareWildernessEntry();
+  PopulateWilderness(v2(XSize / 2, YSize / 2));
+
+  for(int x = 0; x < XSize; ++x)
+    for(int y = 0; y < YSize; ++y)
+    {
+      Map[x][y]->CalculateGroundBorderPartners();
+      Map[x][y]->CalculateOverBorderPartners();
+    }
+}
+
+/* Script-derived defaults for a level that is being created for the first
+   time. */
+void level::InitializeRuntimeStats()
+{
+  int Index = GetIndex();
+
+  Difficulty = 0.001 * (*LevelScript->GetDifficultyBase()
+			+ *LevelScript->GetDifficultyDelta() * Index);
+  MonsterGenerationInterval = *LevelScript->GetMonsterGenerationIntervalBase()
+    + *LevelScript->GetMonsterGenerationIntervalDelta() * Index;
+  IdealPopulation = *LevelScript->GetMonsterAmountBase()
+    + *LevelScript->GetMonsterAmountDelta() * Index;
+  RestoreNonSerializedStats();
+}
+
+/* Difficulty, MonsterGenerationInterval and IdealPopulation are part of the
+   serialized level and must survive a reload unchanged, so only the script
+   derived statistics that level::Save() does not write are restored here.
+   Shared by wilderness generation and level loading so the two paths cannot
+   drift. */
+void level::RestoreNonSerializedStats()
+{
+  int Index = GetIndex();
+
+  EnchantmentMinusChance = *LevelScript->GetEnchantmentMinusChanceBase()
+    + *LevelScript->GetEnchantmentMinusChanceDelta() * Index;
+  EnchantmentPlusChance = *LevelScript->GetEnchantmentPlusChanceBase()
+    + *LevelScript->GetEnchantmentPlusChanceDelta() * Index;
+}
+
+int level::GetWildernessGroundConfig() const
+{
+  switch(*LevelScript->GetType())
+  {
+   case DESERT: return SAND_TERRAIN;
+   case TUNDRA:
+   case GLACIER: return SNOW_TERRAIN;
+   default: return GRASS_TERRAIN;
+  }
+}
+
+void level::PrepareWildernessEntry()
+{
+  int CenterX = XSize / 2;
+  int CenterY = YSize / 2;
+  truth Ocean = *LevelScript->GetType() == OCEAN_LEVEL;
+  int GroundConfig = GetWildernessGroundConfig();
+
+  for(int x = CenterX - 2; x <= CenterX + 2; ++x)
+    for(int y = CenterY - 2; y <= CenterY + 2; ++y)
+      if(IsValidPos(x, y))
+	MakeWildernessPassable(x, y, GroundConfig, Ocean);
+
+  SetEntryPos(WILDERNESS_LOCAL_ENTRY, v2(CenterX, CenterY));
+
+  if(Ocean)
+    return; /* open water already reaches every edge */
+
+  /* Guarantee a three-wide exit corridor to every edge so that large
+     followers are never sealed in by a one-square bottleneck. */
+  ForceWildernessExitRoutes();
+}
+
+void level::ForceWildernessExitRoutes()
+{
+  int CenterX = XSize / 2;
+  int CenterY = YSize / 2;
+  int GroundConfig = GetWildernessGroundConfig();
+  v2 Center(CenterX, CenterY);
+  v2 Edges[4] = { v2(0, CenterY), v2(XSize - 1, CenterY),
+		  v2(CenterX, 0), v2(CenterX, YSize - 1) };
+
+  for(int c = 0; c < 4; ++c)
+  {
+    /* An already open biome carries a wide route on its own; repainting its
+       usable ground would only stamp the same road cross on every region.
+       Carve a meandering opening only where the footprint-aware check
+       actually fails, so the old narrow-route bug cannot return. */
+    if(!WildernessWideRouteExists(Center, Edges[c]))
+      CarveWildernessTrail(Center, Edges[c], GroundConfig);
+
+    if(!WildernessWideRouteExists(Center, Edges[c]))
+      ABORT("Wilderness exit corridor %d could not be opened!", c);
+  }
+}
+
+/* Movement-appropriate reachability for a four-square creature: a parent
+   square counts only when it and its right, lower and lower-right neighbours
+   are all walkable, and success is reaching the square next to the target
+   edge. */
+truth level::WildernessWideRouteExists(v2 From, v2 To) const
+{
+  if(!IsValidPos(From) || !IsValidPos(To))
+    return false;
+
+  std::vector<char> Wide(XSizeTimesYSize, 0);
+
+  for(int x = 0; x + 1 < XSize; ++x)
+    for(int y = 0; y + 1 < YSize; ++y)
+      Wide[y * XSize + x] = (Map[x][y]->GetWalkability() & WALK)
+	&& (Map[x + 1][y]->GetWalkability() & WALK)
+	&& (Map[x][y + 1]->GetWalkability() & WALK)
+	&& (Map[x + 1][y + 1]->GetWalkability() & WALK);
+
+  v2 Start = ERROR_V2;
+
+  for(int dx = -1; dx <= 1 && Start == ERROR_V2; ++dx)
+    for(int dy = -1; dy <= 1 && Start == ERROR_V2; ++dy)
+    {
+      v2 Pos = From + v2(dx, dy);
+
+      if(IsValidPos(Pos) && Wide[Pos.Y * XSize + Pos.X])
+	Start = Pos;
+    }
+
+  if(Start == ERROR_V2)
+    return false;
+
+  std::vector<char> Seen(XSizeTimesYSize, 0);
+  std::vector<v2> Stack;
+  Seen[Start.Y * XSize + Start.X] = 1;
+  Stack.push_back(Start);
+
+  while(!Stack.empty())
+  {
+    v2 Pos = Stack.back();
+    Stack.pop_back();
+
+    if((To.X == 0 && Pos.X == 0)
+       || (To.X == XSize - 1 && Pos.X == XSize - 2)
+       || (To.Y == 0 && Pos.Y == 0)
+       || (To.Y == YSize - 1 && Pos.Y == YSize - 2))
+      return true;
+
+    /* Characters move in eight directions, so two parent squares that touch
+       only at a corner still connect for a four-square creature. */
+    for(int d = 0; d < 8; ++d)
+    {
+      v2 Next = Pos + game::GetMoveVector(d);
+
+      if(!IsValidPos(Next))
+	continue;
+
+      int I = Next.Y * XSize + Next.X;
+
+      if(Seen[I] || !Wide[I])
+	continue;
+
+      Seen[I] = 1;
+      Stack.push_back(Next);
+    }
+  }
+
+  return false;
+}
+
+truth level::WildernessRouteExists(v2 From, v2 To) const
+{
+  if(!IsValidPos(From) || !IsValidPos(To))
+    return false;
+
+  if(!(Map[From.X][From.Y]->GetWalkability() & WALK))
+    return false;
+
+  std::vector<char> Seen(XSizeTimesYSize, 0);
+  std::vector<v2> Stack;
+  Seen[From.Y * XSize + From.X] = 1;
+  Stack.push_back(From);
+
+  while(!Stack.empty())
+  {
+    v2 Pos = Stack.back();
+    Stack.pop_back();
+
+    if(Pos == To)
+      return true;
+
+    for(int d = 0; d < 8; ++d)
+    {
+      v2 Next = Pos + game::GetMoveVector(d);
+
+      if(!IsValidPos(Next))
+	continue;
+
+      int Index = Next.Y * XSize + Next.X;
+
+      if(Seen[Index] || !(Map[Next.X][Next.Y]->GetWalkability() & WALK))
+	continue;
+
+      Seen[Index] = 1;
+      Stack.push_back(Next);
+    }
+  }
+
+  return false;
+}
+
+void level::CarveWildernessTrail(v2 From, v2 To, int GroundConfig)
+{
+  /* A gently meandering band rather than a ruler-straight line, so the four
+     routes do not stamp the same cross on every biome. The lateral drift moves
+     at most one square per step and is bounded, which keeps the two-square
+     clearance a large follower needs. */
+  truth Horizontal = From.Y == To.Y;
+  v2 Pos = From;
+  int Drift = 0;
+
+  while(Pos != To)
+  {
+    if(Horizontal)
+      Pos.X += To.X > From.X ? 1 : -1;
+    else
+      Pos.Y += To.Y > From.Y ? 1 : -1;
+
+    if(!(RAND() % 3))
+      Drift += RAND_2 ? 1 : -1;
+
+    if(Drift > 2)
+      Drift = 2;
+
+    if(Drift < -2)
+      Drift = -2;
+
+    for(int d = -1; d <= 1; ++d)
+    {
+      v2 P = Pos + (Horizontal ? v2(0, Drift + d) : v2(Drift + d, 0));
+
+      if(IsValidPos(P))
+	MakeWildernessPassable(P.X, P.Y, GroundConfig, false);
+    }
+  }
+}
+
+void level::MakeWildernessPassable(int X, int Y, int GroundConfig, truth Ocean)
+{
+  lsquare* Square = Map[X][Y];
+
+  if(Square->GetOLTerrain())
+    Square->ChangeOLTerrain(0);
+
+  if(Ocean)
+    Square->ChangeGLTerrain(liquidterrain::Spawn(POOL));
+  else
+    Square->ChangeGLTerrain(solidterrain::Spawn(GroundConfig));
+}
+
+/* Movement-appropriate reachability: flood-fills from From using only squares
+   whose walkability matches MoveType, and reports whether To is reachable. */
+truth level::WildernessSquareReachable(v2 From, v2 To, int MoveType) const
+{
+  if(!IsValidPos(From) || !IsValidPos(To))
+    return false;
+
+  if(!(Map[From.X][From.Y]->GetWalkability() & MoveType))
+    return false;
+
+  std::vector<char> Seen(XSizeTimesYSize, 0);
+  std::vector<v2> Stack;
+  Seen[From.Y * XSize + From.X] = 1;
+  Stack.push_back(From);
+
+  while(!Stack.empty())
+  {
+    v2 Pos = Stack.back();
+    Stack.pop_back();
+
+    if(Pos == To)
+      return true;
+
+    for(int d = 0; d < 8; ++d)
+    {
+      v2 Next = Pos + game::GetMoveVector(d);
+
+      if(!IsValidPos(Next))
+	continue;
+
+      int Index = Next.Y * XSize + Next.X;
+
+      if(Seen[Index] || !(Map[Next.X][Next.Y]->GetWalkability() & MoveType))
+	continue;
+
+      Seen[Index] = 1;
+      Stack.push_back(Next);
+    }
+  }
+
+  return false;
+}
+
+/* Strict, bounded wilderness placement. Unlike GetRandomSquare() this never
+   drops the creature's movement, footprint or occupancy requirements, and it
+   rechecks CanMoveOn() and IsFreeForMe() on every candidate. */
+v2 level::FindWildernessSpawnSquare(const character* Char, v2 Center, int MinDistance) const
+{
+  for(int c = 0; c < 200; ++c)
+  {
+    v2 Candidate(1 + RAND() % (XSize - 2), 1 + RAND() % (YSize - 2));
+    lsquare* Square = Map[Candidate.X][Candidate.Y];
+
+    if(!Char->CanMoveOn(Square) || !Char->IsFreeForMe(Square))
+      continue;
+
+    if((Candidate - Center).GetManhattanLength() <= MinDistance)
+      continue;
+
+    return Candidate;
+  }
+
+  return ERROR_V2;
+}
+
+/* Strict destination allocator for travel. Unlike GetRandomSquare() this only
+   ever returns a square the character can actually use: it must be reachable
+   from StartPos through squares the character itself can traverse, and the
+   square itself (including the whole footprint of a multi-square creature,
+   which IsFreeForMe() covers) must be free. Squares that are already occupied
+   are still used for routing, so a companion stuck behind its leader in a
+   one-square corridor can still find room; it simply cannot stand on one.
+   Returning ERROR_V2 means "no such square exists" and the caller must refuse
+   the transfer rather than force a placement. */
+v2 level::FindTravelDestination(const character* Char, v2 StartPos) const
+{
+  if(!Char || !IsValidPos(StartPos))
+    return ERROR_V2;
+
+  std::vector<v2> Queue;
+  std::vector<char> Seen(XSizeTimesYSize, 0);
+  ulong Head = 0;
+  Seen[StartPos.Y * XSize + StartPos.X] = 1;
+  Queue.push_back(StartPos);
+
+  while(Head < Queue.size())
+  {
+    v2 Pos = Queue[Head++];
+
+    for(int d = 0; d < 8; ++d)
+    {
+      v2 Next = Pos + game::GetMoveVector(d);
+
+      if(!IsValidPos(Next))
+	continue;
+
+      int Index = Next.Y * XSize + Next.X;
+
+      if(Seen[Index])
+	continue;
+
+      Seen[Index] = 1;
+
+      lsquare* Square = GetLSquare(Next);
+
+      if(!Char->CanMoveOn(Square))
+	continue;
+
+      if(Char->IsFreeForMe(Square))
+	return Next;
+
+      Queue.push_back(Next);
+    }
+  }
+
+  return ERROR_V2;
+}
+
+/* One-time biome population. Concrete configurations are resolved by class id
+   and, when needed, by adjective so that abstract bases are never spawned. */
+
+struct wildernessspawn
+{
+  const char* ClassID;
+  const char* Adjective;
+  int Chance;
+  int Min, Max;
+};
+
+static const wildernessspawn WildernessJungleSpawns[] =
+{
+  { "snake", 0, 100, 1, 3 },
+  { "spider", "large", 100, 1, 2 },
+  { "carnivorousplant", 0, 70, 1, 2 },
+  { "largerat", 0, 50, 1, 1 },
+  { "spider", "giant", 15, 1, 1 }
+};
+
+static const wildernessspawn WildernessLeafyForestSpawns[] =
+{
+  { "hedgehog", 0, 100, 1, 2 },
+  { "skunk", 0, 80, 1, 1 },
+  { "largerat", 0, 80, 1, 2 },
+  { "wolf", 0, 60, 1, 1 },
+  { "bear", "black", 20, 1, 1 },
+  { "magpie", 0, 20, 1, 1 }
+};
+
+static const wildernessspawn WildernessEvergreenForestSpawns[] =
+{
+  { "wolf", 0, 100, 1, 2 },
+  { "hedgehog", 0, 80, 1, 2 },
+  { "bear", "black", 40, 1, 1 },
+  { "bear", "grizzly", 15, 1, 1 },
+  { "twoheadedmoose", 0, 10, 1, 1 },
+  { "magpie", 0, 20, 1, 1 }
+};
+
+static const wildernessspawn WildernessSteppeSpawns[] =
+{
+  { "jackal", 0, 100, 1, 2 },
+  { "snake", 0, 50, 1, 1 },
+  { "wolf", 0, 40, 1, 1 },
+  { "buffalo", 0, 20, 1, 1 },
+  { "lion", 0, 10, 1, 1 }
+};
+
+/* Desert lions are omitted: they require oasis/vegetated habitat, which the
+   current desert generator does not track for the spawner. */
+static const wildernessspawn WildernessDesertSpawns[] =
+{
+  { "jackal", 0, 100, 1, 2 },
+  { "snake", 0, 60, 1, 1 },
+  { "spider", "large", 50, 1, 1 }
+};
+
+static const wildernessspawn WildernessTundraSpawns[] =
+{
+  { "wolf", 0, 80, 0, 2 },
+  { "mammoth", 0, 15, 1, 1 },
+  { "twoheadedmoose", 0, 10, 1, 1 },
+  { "bear", "polar", 5, 1, 1 }
+};
+
+static const wildernessspawn WildernessGlacierSpawns[] =
+{
+  { "bear", "polar", 10, 1, 1 }
+};
+
+static const wildernessspawn WildernessOceanSpawns[] =
+{
+  { "dolphin", 0, 80, 0, 3 }
+};
+
+void level::PopulateWilderness(v2 Center)
+{
+  const wildernessspawn* Table = 0;
+  int Size = 0;
+
+  switch(*LevelScript->GetType())
+  {
+   case JUNGLE:
+    Table = WildernessJungleSpawns;
+    Size = sizeof(WildernessJungleSpawns) / sizeof(wildernessspawn);
+    break;
+   case LEAFY_FOREST:
+    Table = WildernessLeafyForestSpawns;
+    Size = sizeof(WildernessLeafyForestSpawns) / sizeof(wildernessspawn);
+    break;
+   case EVERGREEN_FOREST:
+    Table = WildernessEvergreenForestSpawns;
+    Size = sizeof(WildernessEvergreenForestSpawns) / sizeof(wildernessspawn);
+    break;
+   case STEPPE:
+    Table = WildernessSteppeSpawns;
+    Size = sizeof(WildernessSteppeSpawns) / sizeof(wildernessspawn);
+    break;
+   case DESERT:
+    Table = WildernessDesertSpawns;
+    Size = sizeof(WildernessDesertSpawns) / sizeof(wildernessspawn);
+    break;
+   case TUNDRA:
+    Table = WildernessTundraSpawns;
+    Size = sizeof(WildernessTundraSpawns) / sizeof(wildernessspawn);
+    break;
+   case GLACIER:
+    Table = WildernessGlacierSpawns;
+    Size = sizeof(WildernessGlacierSpawns) / sizeof(wildernessspawn);
+    break;
+   case OCEAN_LEVEL:
+    Table = WildernessOceanSpawns;
+    Size = sizeof(WildernessOceanSpawns) / sizeof(wildernessspawn);
+    break;
+  }
+
+  if(!Table)
+    return;
+
+  for(int c = 0; c < Size; ++c)
+  {
+    const wildernessspawn& Spawn = Table[c];
+
+    if(RAND() % 100 >= Spawn.Chance)
+      continue;
+
+    int Count = Spawn.Max > Spawn.Min
+      ? Spawn.Min + RAND_N(Spawn.Max - Spawn.Min + 1) : Spawn.Min;
+
+    for(int i = 0; i < Count; ++i)
+      SpawnWildernessAnimal(Spawn.ClassID, Spawn.Adjective, Center);
+  }
+}
+
+character* level::SpawnWildernessAnimal(const char* ClassID, const char* Adjective, v2 Center)
+{
+  int ProtoIndex = protocontainer<character>::SearchCodeName(ClassID);
+
+  if(!ProtoIndex)
+    ABORT("Wilderness spawn table: unknown creature class '%s'!", ClassID);
+
+  const characterprototype* Proto = protocontainer<character>::GetProto(ProtoIndex);
+  const characterdatabase*const* ConfigData = Proto->GetConfigData();
+  int ConfigSize = Proto->GetConfigSize();
+  int Config = -1;
+  int DefaultConfig = -1;
+
+  /* Concrete configurations are resolved by an explicit stable key: an exact
+     adjective when the table names one, otherwise the species' default
+     (unadjectived) configuration. Preferring "whatever concrete config comes
+     first" would make the result depend on script ordering. Abstract bases are
+     never spawned. */
+  for(int c = 0; c < ConfigSize; ++c)
+  {
+    if(ConfigData[c]->IsAbstract)
+      continue;
+
+    if(Adjective)
+    {
+      if(ConfigData[c]->Adjective == Adjective)
+      {
+	Config = ConfigData[c]->Config;
+	break;
+      }
+    }
+    else
+    {
+      if(!ConfigData[c]->Adjective.GetSize())
+      {
+	Config = ConfigData[c]->Config;
+	break;
+      }
+
+      if(DefaultConfig < 0)
+	DefaultConfig = ConfigData[c]->Config;
+    }
+  }
+
+  if(Config < 0)
+    Config = DefaultConfig;
+
+  if(Config < 0)
+    ABORT("Wilderness spawn table: no concrete configuration for %s%s%s%s!",
+	  ClassID, Adjective ? " [" : "", Adjective ? Adjective : "",
+	  Adjective ? "]" : "");
+
+  character* Char = Proto->Spawn(Config);
+
+  if(!Char)
+    return 0;
+
+  Char->CalculateEnchantments();
+
+  v2 Pos = ERROR_V2;
+  int MoveType = Char->GetMoveType();
+
+  for(int c = 0; c < 10; ++c)
+  {
+    v2 Candidate = FindWildernessSpawnSquare(Char, Center, 6);
+
+    if(Candidate == ERROR_V2)
+      break;
+
+    /* Ground wildlife must lie in the entry's reachable component so it can
+       actually reach the player and the exits. */
+    if(!WildernessSquareReachable(Center, Candidate, MoveType))
+      continue;
+
+    lsquare* Square = GetLSquare(Candidate);
+
+    if(!Char->CanMoveOn(Square) || !Char->IsFreeForMe(Square))
+      continue;
+
+    Pos = Candidate;
+    break;
+  }
+
+  if(Pos == ERROR_V2)
+  {
+    delete Char;
+    return 0;
+  }
+
+  Char->PutTo(Pos);
+  Char->SetTeam(game::GetTeam(MONSTER_TEAM));
+  Char->SetGenerationDanger(Difficulty);
+  Char->SignalGeneration();
+  Char->SignalNaturalGeneration();
+  ivantime Time;
+  game::GetTime(Time);
+  int Modifier = Time.Day - EDIT_ATTRIBUTE_DAY_MIN;
+
+  if(Modifier > 0)
+    Char->EditAllAttributes(Modifier >> EDIT_ATTRIBUTE_DAY_SHIFT);
+
+  return Char;
 }
 
 bool nodepointerstorer::operator<(const nodepointerstorer& N) const
@@ -2342,6 +3100,22 @@ void level::CheckSunLight()
       int E = int(100 + (Cos - 0.40) * 40);
       SunLightEmitation = MakeRGB24(E, E, E);
       AmbientLuminance = MakeRGB24(E - 8, E - 8, E - 8);
+    }
+    else
+    {
+      SunLightEmitation = 0;
+      AmbientLuminance = NightAmbientLuminance;
+    }
+  }
+  else if(game::IsWildernessDungeon(GetDungeon()->GetIndex()))
+  {
+    double Cos = cos(FPI * (game::GetTick() % 48000) / 24000.);
+
+    if(Cos > 0.01)
+    {
+      int E = int(100 + Cos * 30);
+      SunLightEmitation = MakeRGB24(E, E, E);
+      AmbientLuminance = MakeRGB24(E - 6, E - 6, E - 6);
     }
     else
     {

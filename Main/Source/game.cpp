@@ -37,6 +37,7 @@
 #include "human.h"
 #include "nonhuman.h"
 #include "wsquare.h"
+#include "wterras.h"
 #include "game.h"
 #include "graphics.h"
 #include "bitmap.h"
@@ -50,8 +51,8 @@
 #include "balance.h"
 #include "confdef.h"
 
-#define SAVE_FILE_VERSION 118 // Increment this if changes make savefiles incompatible
-#define BONE_FILE_VERSION 105 // Increment this if changes make bonefiles incompatible
+#define SAVE_FILE_VERSION 120 // Increment this if changes make savefiles incompatible
+#define BONE_FILE_VERSION 106 // Increment this if changes make bonefiles incompatible
 
 #define LOADED 0
 #define NEW_GAME 1
@@ -72,6 +73,9 @@ ulong game::LOSTick;
 v2 game::CursorPos(-1, -1);
 truth game::Zoom;
 truth game::Generating = false;
+#ifdef WILDERNESS_TEST_HARNESS
+truth game::PlacementFailureForced = false;
+#endif
 double game::AveragePlayerArmStrengthExperience;
 double game::AveragePlayerLegStrengthExperience;
 double game::AveragePlayerDexterityExperience;
@@ -333,7 +337,7 @@ truth game::Init(const festring& Name)
       InitDangerMap();
       Petrus = 0;
       InitDungeons();
-      SetCurrentArea(WorldMap = new worldmap(128, 128));
+      SetCurrentArea(WorldMap = new worldmap(WORLD_MAP_WIDTH, WORLD_MAP_HEIGHT));
       CurrentWSquareMap = WorldMap->GetMap();
       WorldMap->Generate();
       UpdateCamera();
@@ -468,7 +472,7 @@ void game::Run()
 
       if((CurrentDungeonIndex == NEW_ATTNAM
 	  || CurrentDungeonIndex == ATTNAM)
-	 && CurrentLevelIndex == 0)
+	 && CurrentLevelIndex == 0 && GlobalRainLiquid)
       {
 	long OldVolume = GlobalRainLiquid->GetVolume();
 	long NewVolume = Max(long(sin((Tick + GlobalRainTimeModifier) * 0.0003) * 300 - 150), 0L);
@@ -1028,23 +1032,30 @@ void game::RemoveSaves(truth RealSavesAlso)
   festring File;
 
   for(int i = 1; i < Dungeons; ++i)
-    for(int c = 0; c < GetDungeon(i)->GetLevels(); ++c)
-    {
-      /* This looks very odd. And it is very odd.
-       * Indeed, gcc is very odd to not compile this correctly with -O3
-       * if it is written in a less odd way. */
+  {
+    dungeon* CurrentDungeon = GetDungeon(i);
+    int Levels = CurrentDungeon->GetLevels();
 
-      File = SaveName() + '.' + i;
-      File << c;
+    for(int c = 0; c < Levels; ++c)
+    {
+      /* Wilderness containers have thousands of slots but only the visited
+         ones have files; probing every unvisited slot would be pointless. The
+         reserved world-map slot is not a level of a wilderness container and
+         must never be probed with a validated slot accessor. */
+      if(IsWildernessDungeon(i)
+	 && (c == WORLD_MAP || !CurrentDungeon->IsGenerated(c)))
+	continue;
+
+      File = CurrentDungeon->GetLevelFileName(SaveName(), c);
 
       if(RealSavesAlso)
 	remove(File.CStr());
 
-      File = AutoSaveFileName + '.' + i;
-      File << c;
+      File = CurrentDungeon->GetLevelFileName(AutoSaveFileName, c);
 
       remove(File.CStr());
     }
+  }
 }
 
 void game::SetPlayer(character* NP)
@@ -1817,105 +1828,427 @@ void game::CalculateNextDanger()
 truth game::TryTravel(int Dungeon, int Area, int EntryIndex, truth AllowHostiles, truth AlliesFollow)
 {
   charactervector Group;
+  travelsource Source;
 
-  if(LeaveArea(Group, AllowHostiles, AlliesFollow))
-  {
-    CurrentDungeonIndex = Dungeon;
-    EnterArea(Group, Area, EntryIndex);
-    return true;
-  }
-  else
+  /* Remember the source exactly. LeaveArea() below detaches the traveller
+     from it but deliberately does not write it out, so a destination that
+     cannot host everybody can be refused with the source still intact. */
+  Source.Commit = true;
+  Source.Wilderness = IsInWilderness();
+  Source.DungeonIndex = CurrentDungeonIndex;
+  Source.LevelIndex = CurrentLevelIndex;
+  Source.Level = CurrentLevel;
+  Source.Area = CurrentArea;
+  Source.LSquareMap = CurrentLSquareMap;
+  Source.WSquareMap = CurrentWSquareMap;
+  Source.PlayerPos = Player && Player->GetSquareUnder() ? Player->GetPos() : ERROR_V2;
+  Source.RainLiquid = GlobalRainLiquid;
+  Source.RainSpeed = GlobalRainSpeed;
+
+  /* An area may not be travelled onto itself: the destination would overwrite
+     the very source a refusal has to restore, and for the world map it would
+     make CommitTravelSource() save and delete whichever map is current. Both
+     are rejected before anything is detached, so there is nothing to undo. */
+  if((!Source.Wilderness && Area != WORLD_MAP
+      && Dungeon == Source.DungeonIndex && Area == Source.LevelIndex)
+     || (Source.Wilderness && Area == WORLD_MAP && Dungeon == WORLD_MAP))
     return false;
+
+  if(!LeaveArea(Group, AllowHostiles, AlliesFollow, &Source.GroupPositions))
+    return false;
+
+  CurrentDungeonIndex = Dungeon;
+
+  if(EnterArea(Group, Area, EntryIndex, Source))
+    return true;
+
+  RestoreTravelSource(Source, Group);
+  return false;
 }
 
-truth game::LeaveArea(charactervector& Group, truth AllowHostiles, truth AlliesFollow)
+truth game::TryEnterWilderness(v2 WorldPos)
+{
+  if(!IsInWilderness())
+    return false;
+
+  worldmap* WorldMap = GetWorldMap();
+
+  if(!WorldMap || !WorldMap->IsValidPos(WorldPos))
+    return false;
+
+  /* The encoded slot mapping assumes the world matches the compile-time
+     constants; fail clearly rather than index outside the containers. */
+  if(WorldMap->GetXSize() != WORLD_MAP_WIDTH || WorldMap->GetYSize() != WORLD_MAP_HEIGHT)
+    ABORT("Wilderness entry: world is %dx%d but %dx%d is expected!",
+	  WorldMap->GetXSize(), WorldMap->GetYSize(),
+	  WORLD_MAP_WIDTH, WORLD_MAP_HEIGHT);
+
+  wsquare* Square = WorldMap->GetWSquare(WorldPos);
+  gwterrain* Terrain = Square ? Square->GetGWTerrain() : 0;
+  int Dungeon = Terrain ? Terrain->GetAttachedDungeon() : 0;
+
+  if(!IsWildernessDungeon(Dungeon))
+    return false;
+
+  int TileID = WorldPos.Y * WorldMap->GetXSize() + WorldPos.X;
+
+  if(TileID < 0 || TileID >= WILDERNESS_TILE_COUNT)
+    return false;
+
+  int Slot = WildernessSlotFromTileID(TileID);
+
+  /* Slot WORLD_MAP (255) is reserved and must never be used. */
+  if(Slot == WORLD_MAP)
+    return false;
+
+  /* Check the slot against the actual container's capacity, not just the
+     compile-time constant, so a changed profile fails clearly. */
+  dungeon* DungeonPtr = GetDungeon(Dungeon);
+
+  if(!DungeonPtr || Slot < 0 || Slot >= DungeonPtr->GetLevels())
+    return false;
+
+  /* Register the exact world tile we are leaving from, so the off-map exit
+     can return there. The world map is saved by LeaveArea() below. */
+  WorldMap->SetEntryPos(WildernessReturnEntry(TileID), WorldPos);
+  return TryTravel(Dungeon, Slot, WILDERNESS_LOCAL_ENTRY, false, true);
+}
+
+/* Detaches the player and the travelling companions from the current area.
+   The source itself is not committed here: CommitTravelSource() writes it out
+   only after the destination has accepted everyone, which is what makes a
+   refused transfer cost-free. Positions, when given, records where each
+   collected companion stood so it can be put back exactly. */
+truth game::LeaveArea(charactervector& Group, truth AllowHostiles, truth AlliesFollow,
+		      std::vector<v2>* Positions)
 {
   if(!IsInWilderness())
   {
-    if(AlliesFollow && !GetCurrentLevel()->CollectCreatures(Group, Player, AllowHostiles))
+    if(AlliesFollow && !GetCurrentLevel()->CollectCreatures(Group, Player, AllowHostiles, Positions))
       return false;
 
     Player->Remove();
-    GetCurrentDungeon()->SaveLevel(SaveName(), CurrentLevelIndex);
   }
   else
   {
+    /* World-map companions live in the worldmap's own group rather than on
+       squares, so they have no source coordinates to record. */
     Player->Remove();
     GetWorldMap()->GetPlayerGroup().swap(Group);
-    SaveWorldMap();
   }
 
   return true;
 }
 
-/* Used always when the player enters an area. */
+/* Called once the destination has accepted everyone. Until then the source
+   lives only in memory, so nothing has to be undone if it never gets here. */
+void game::CommitTravelSource(const travelsource& Source)
+{
+  if(!Source.Commit)
+    return;
 
-void game::EnterArea(charactervector& Group, int Area, int EntryIndex)
+  if(Source.Wilderness)
+    SaveWorldMap();
+  else if(Source.DungeonIndex >= 0 && Source.DungeonIndex < Dungeons
+	  && Dungeon[Source.DungeonIndex]
+	  && Source.LevelIndex >= 0
+	  && Source.LevelIndex < Dungeon[Source.DungeonIndex]->GetLevels())
+    Dungeon[Source.DungeonIndex]->SaveLevel(SaveName(), Source.LevelIndex);
+}
+
+/* Puts the source back the way LeaveArea() found it: same globals, same
+   occupants, same coordinates, and the rain binding it had. Nothing was
+   written out, so there is no disk round trip and no partially destroyed
+   state to repair; the destination, if one was prepared, has already been
+   released by EnterArea(). What this cannot undo is anything that happened
+   before the refusal was known -- a follower's voluntary action may have been
+   terminated and a message may have been shown. The guarantee is about where
+   everybody ends up, not about replaying the turn. */
+void game::RestoreTravelSource(const travelsource& Source, charactervector& Group)
+{
+  Generating = false;
+  CurrentDungeonIndex = Source.DungeonIndex;
+  CurrentLevelIndex = Source.LevelIndex;
+  SetCurrentArea(Source.Area);
+  CurrentLevel = Source.Level;
+  CurrentLSquareMap = Source.LSquareMap;
+  CurrentWSquareMap = Source.WSquareMap;
+  SetIsInWilderness(Source.Wilderness);
+
+  /* Preparing the destination rebinds the global rain to it, and releasing it
+     unbinds it again; the source's own binding is what the player was standing
+     under, so reinstall it rather than leaving whichever value happened to
+     survive the round trip. */
+  SetGlobalRainLiquid(Source.RainLiquid);
+  SetGlobalRainSpeed(Source.RainSpeed);
+
+  if(Source.Wilderness)
+  {
+    igraph::CreateBackGround(GRAY_FRACTAL);
+
+    /* Companions taken out of the world group go straight back in. */
+    if(WorldMap)
+      WorldMap->GetPlayerGroup().swap(Group);
+
+    if(Player && WorldMap && Source.PlayerPos != ERROR_V2
+       && WorldMap->IsValidPos(Source.PlayerPos))
+      Player->PutTo(Source.PlayerPos);
+  }
+  else if(Source.Level)
+  {
+    if(Source.Level->GetLevelScript() && Source.Level->GetLevelScript()->GetBackGroundType())
+      igraph::CreateBackGround(*Source.Level->GetLevelScript()->GetBackGroundType());
+
+    if(Player && Source.PlayerPos != ERROR_V2
+       && Source.Level->IsValidPos(Source.PlayerPos))
+    {
+      Source.Level->GetLSquare(Source.PlayerPos)->KickAnyoneStandingHereAway();
+      Player->PutTo(Source.PlayerPos);
+    }
+
+    for(uint c = 0; c < Group.size(); ++c)
+    {
+      v2 Pos = ERROR_V2;
+
+      if(c < Source.GroupPositions.size() && Source.GroupPositions[c] != ERROR_V2
+	 && Source.Level->IsValidPos(Source.GroupPositions[c]))
+	Pos = Source.GroupPositions[c];
+      else if(Player && Player->GetSquareUnder())
+	Pos = Source.Level->FindTravelDestination(Group[c], Player->GetPos());
+
+      if(Pos != ERROR_V2 && Source.Level->IsValidPos(Pos))
+	Group[c]->PutTo(Pos);
+    }
+  }
+
+  if(GetCurrentArea())
+    GetCurrentArea()->SendNewDrawRequest();
+}
+
+/* Works out where the player and every travelling companion will stand on the
+   destination. Nothing has been committed yet: the occupants are placed and
+   then taken off again, because being on the map is what makes IsFreeForMe()
+   account for whole footprints and for earlier members of the same transfer.
+   Returns false with no placement at all when somebody has nowhere to go, and
+   the caller must then refuse the transfer. */
+truth game::PlanAreaPlacement(charactervector& Group, v2 EntryPos, v2& PlayerPos,
+			      std::vector<v2>& GroupPos)
+{
+  level* Level = GetCurrentLevel();
+  PlayerPos = ERROR_V2;
+  GroupPos.clear();
+  GroupPos.resize(Group.size());
+
+  if(!Level || !Level->IsValidPos(EntryPos))
+    return false;
+
+#ifdef WILDERNESS_TEST_HARNESS
+  if(PlacementFailureForced)
+  {
+    PlacementFailureForced = false;
+    return false;
+  }
+#endif
+
+  truth Result = false;
+  truth PlayerPlaced = false;
+  uint Placed = 0;
+
+  do
+  {
+    if(Player)
+    {
+      lsquare* EntrySquare = Level->GetLSquare(EntryPos);
+
+      if(Player->CanMoveOn(EntrySquare) && Player->IsFreeForMe(EntrySquare))
+	PlayerPos = EntryPos;
+      else
+	PlayerPos = Level->FindTravelDestination(Player, EntryPos);
+
+      if(PlayerPos == ERROR_V2)
+      {
+	ADD_MESSAGE("You cannot find a place to stand there.");
+	break;
+      }
+
+      /* Occupying the arrival square is how everyone else is kept off it. */
+      Player->PutTo(PlayerPos);
+      PlayerPlaced = true;
+    }
+    else
+    {
+      /* The caller supplies the player itself (sumo mirror transfer); the
+	 arrival square is still where everybody else has to gather. */
+      PlayerPos = EntryPos;
+    }
+
+    for(uint c = 0; c < Group.size(); ++c)
+    {
+      v2 Pos = Level->FindTravelDestination(Group[c], PlayerPos);
+
+      if(Pos == ERROR_V2)
+      {
+	ADD_MESSAGE("%s cannot follow you there.", Group[c]->CHAR_NAME(DEFINITE));
+	break;
+      }
+
+      Group[c]->PutTo(Pos);
+      GroupPos[c] = Pos;
+      ++Placed;
+    }
+
+    if(Placed != Group.size())
+      break;
+
+    Result = true;
+  }
+  while(false);
+
+  /* Take everyone off the destination again: the caller re-places them at the
+     coordinates just worked out, or, on refusal, leaves them in the source. */
+  for(uint c = 0; c < Placed; ++c)
+    Group[c]->Remove();
+
+  if(PlayerPlaced)
+    Player->Remove();
+
+  return Result;
+}
+
+/* Environmental state a map acquires once, at generation, and keeps for the
+   rest of its life. It belongs to the map -- the rain liquid and the squares it
+   falls on -- not to the player, so it is created before a freshly generated
+   map can be written out on a refused entry. The map then carries it when it is
+   finally entered, whether that happens immediately or after a reload.
+   Purely player-facing first-entry effects (the automatic reveal) are handled
+   separately, keyed off level::IsFirstEntryInitDone(). */
+void game::InitializeLevelEnvironment()
+{
+  if(CurrentDungeonIndex == ATTNAM && CurrentLevelIndex == 0)
+    CurrentLevel->CreateGlobalRain(powder::Spawn(SNOW), v2(-64, 128));
+
+  if(CurrentDungeonIndex == NEW_ATTNAM && CurrentLevelIndex == 0)
+    CurrentLevel->CreateGlobalRain(liquid::Spawn(WATER), v2(256, 512));
+
+  if(CurrentDungeonIndex == ELPURI_CAVE && CurrentLevelIndex == OREE_LAIR)
+  {
+    liquid* Blood = liquid::Spawn(BLOOD);
+    Blood->SetVolumeNoSignals(200);
+    CurrentLevel->CreateGlobalRain(Blood, v2(256, 512));
+    CurrentLevel->EnableGlobalRain();
+  }
+}
+
+/* Used always when the player enters an area. Returns false only when the
+   destination cannot host the player or one of the travelling companions; in
+   that case nothing beyond preparation has happened, no camera, line of
+   sight, step signal or save has run, and the caller must restore the source
+   with RestoreTravelSource(). */
+truth game::EnterArea(charactervector& Group, int Area, int EntryIndex,
+		      const travelsource& Source)
 {
   if(Area != WORLD_MAP)
   {
     Generating = true;
     SetIsInWilderness(false);
     CurrentLevelIndex = Area;
-    truth New = !PrepareRandomBone(Area) && !GetCurrentDungeon()->PrepareLevel(Area);
+    truth Bone = PrepareRandomBone(Area);
+    truth New = !Bone && !GetCurrentDungeon()->PrepareLevel(Area);
+
+    /* The map's own environmental state is created here, at generation, before
+       any placement decision: a refused first entry is written out as it is, so
+       the weather has to be part of the map by then and not a bonus handed out
+       only after somebody has stood on it. The player-facing effects below
+       still wait for a successful entry. */
+    if(New)
+      InitializeLevelEnvironment();
+
     igraph::CreateBackGround(*CurrentLevel->GetLevelScript()->GetBackGroundType());
     GetCurrentArea()->SendNewDrawRequest();
-    v2 Pos = GetCurrentLevel()->GetEntryPos(Player, EntryIndex);
+    v2 EntryPos = GetCurrentLevel()->GetEntryPos(Player, EntryIndex);
 
-    if(Player)
+    /* Validate the entry coordinate before committing any placement. */
+    if(EntryPos == ERROR_V2 || !GetCurrentLevel()->IsValidPos(EntryPos))
+      EntryPos = GetCurrentLevel()->GetRandomSquare(Player);
+
+    /* With no player object the arrival square itself has to stay free for
+       the character the caller will pick up from it, so do not kick anyone. */
+    if(Player && EntryPos != ERROR_V2 && GetCurrentLevel()->IsValidPos(EntryPos))
+      GetCurrentLevel()->GetLSquare(EntryPos)->KickAnyoneStandingHereAway();
+
+    v2 PlayerPos;
+    std::vector<v2> GroupPos;
+    truth Planned = EntryPos != ERROR_V2
+      && GetCurrentLevel()->IsValidPos(EntryPos)
+      && PlanAreaPlacement(Group, EntryPos, PlayerPos, GroupPos);
+
+    /* No player object yet: the arrival square must actually hold one. */
+    truth PlayerFromSquare = false;
+
+    if(Planned && !Player)
     {
-      GetCurrentLevel()->GetLSquare(Pos)->KickAnyoneStandingHereAway();
-      Player->PutToOrNear(Pos);
+      SetPlayer(GetCurrentLevel()->GetLSquare(PlayerPos)->GetCharacter());
+      Planned = Player && Player->GetSquareUnder();
+      PlayerFromSquare = true;
     }
-    else
-      SetPlayer(GetCurrentLevel()->GetLSquare(Pos)->GetCharacter());
+
+    if(!Planned)
+    {
+      Generating = false;
+
+      /* The destination has been fully prepared but nobody is going to stand
+	 on it. A level that has never been written out has to be written now,
+	 because the container is already marked as generated and the next
+	 visit looks for this very file. Then release the whole level graph:
+	 an inactive map must not keep its creatures, items and bodies enabled
+	 in the entity pool, where they would keep ticking and counting for
+	 team checks while the player continues on the source. Nothing about
+	 the refusal may stay live, and re-entering later simply reloads what
+	 was written here. */
+      dungeon* Dest = GetDungeon(CurrentDungeonIndex);
+
+      if(Dest && Area >= 0 && Area < Dest->GetLevels() && Dest->GetLevel(Area))
+      {
+	if(Bone || New)
+	  Dest->SaveLevel(SaveName(), Area, false);
+
+	Dest->UnloadLevel(Area);
+      }
+
+      return false;
+    }
+
+    /* The destination's own rain binding is the active one from here on.
+       Install it before the source is committed, so destroying the source can
+       never be mistaken for a reason to unbind the destination. */
+    SetGlobalRainLiquid(CurrentLevel->GetGlobalRainLiquid());
+    SetGlobalRainSpeed(CurrentLevel->GetGlobalRainSpeed());
+
+    /* Destination accepted: only now does the source get committed. */
+    CommitTravelSource(Source);
+
+    if(Player && !PlayerFromSquare)
+      Player->PutTo(PlayerPos);
 
     uint c;
 
     for(c = 0; c < Group.size(); ++c)
-    {
-      v2 NPCPos = GetCurrentLevel()->GetNearestFreeSquare(Group[c], Pos);
-
-      if(NPCPos == ERROR_V2)
-	NPCPos = GetCurrentLevel()->GetRandomSquare(Group[c]);
-
-      Group[c]->PutTo(NPCPos);
-    }
+      Group[c]->PutTo(GroupPos[c]);
 
     GetCurrentLevel()->FiatLux();
     const truth* AutoReveal = GetCurrentLevel()->GetLevelScript()->AutoReveal();
 
-    if(New && AutoReveal && *AutoReveal)
-      GetCurrentLevel()->Reveal();
+    if(!GetCurrentLevel()->IsFirstEntryInitDone())
+    {
+      if(AutoReveal && *AutoReveal)
+	GetCurrentLevel()->Reveal();
+
+      GetCurrentLevel()->SetFirstEntryInitDone(true);
+    }
 
     ShowLevelMessage();
     SendLOSUpdateRequest();
     UpdateCamera();
-
-    /* Gum solution! */
-
-    if(New && CurrentDungeonIndex == ATTNAM && Area == 0)
-    {
-      GlobalRainLiquid = powder::Spawn(SNOW);
-      GlobalRainSpeed = v2(-64, 128);
-      CurrentLevel->CreateGlobalRain(GlobalRainLiquid, GlobalRainSpeed);
-    }
-
-    if(New && CurrentDungeonIndex == NEW_ATTNAM && Area == 0)
-    {
-      GlobalRainLiquid = liquid::Spawn(WATER);
-      GlobalRainSpeed = v2(256, 512);
-      CurrentLevel->CreateGlobalRain(GlobalRainLiquid, GlobalRainSpeed);
-    }
-
-    if(New && CurrentDungeonIndex == ELPURI_CAVE && Area == OREE_LAIR)
-    {
-      GlobalRainLiquid = liquid::Spawn(BLOOD);
-      GlobalRainSpeed = v2(256, 512);
-      CurrentLevel->CreateGlobalRain(GlobalRainLiquid, GlobalRainSpeed);
-      GlobalRainLiquid->SetVolumeNoSignals(200);
-      CurrentLevel->EnableGlobalRain();
-    }
 
     Generating = false;
     GetCurrentLevel()->UpdateLOS();
@@ -1926,6 +2259,8 @@ void game::EnterArea(charactervector& Group, int Area, int EntryIndex)
 
     if(ivanconfig::GetAutoSaveInterval())
       Save(GetAutoSaveFileName().CStr());
+
+    return true;
   }
   else
   {
@@ -1934,14 +2269,35 @@ void game::EnterArea(charactervector& Group, int Area, int EntryIndex)
     LoadWorldMap();
     SetCurrentArea(WorldMap);
     CurrentWSquareMap = WorldMap->GetMap();
+
+    v2 EntryPos = WorldMap->GetEntryPos(Player, EntryIndex);
+
+    /* LeaveArea() has already taken the player off the map it is leaving, so
+       the only thing that can still be wrong here is the player being missing
+       altogether; a detached player is the normal state at this point. */
+    if(!WorldMap->IsValidPos(EntryPos) || !Player)
+      return false;
+
+    /* Companions ride in the worldmap's own group rather than on squares, but
+       they still have to be able to cross the tile the group arrives on. */
+    for(uint c = 0; c < Group.size(); ++c)
+      if(!Group[c]->CanMoveOn(WorldMap->GetWSquare(EntryPos)))
+      {
+	ADD_MESSAGE("%s cannot follow you there.", Group[c]->CHAR_NAME(DEFINITE));
+	return false;
+      }
+
     GetWorldMap()->GetPlayerGroup().swap(Group);
-    Player->PutTo(GetWorldMap()->GetEntryPos(Player, EntryIndex));
+    Player->PutTo(EntryPos);
+    CommitTravelSource(Source);
     SendLOSUpdateRequest();
     UpdateCamera();
     GetWorldMap()->UpdateLOS();
 
     if(ivanconfig::GetAutoSaveInterval())
       Save(GetAutoSaveFileName().CStr());
+
+    return true;
   }
 }
 
@@ -2837,7 +3193,10 @@ truth game::TryToEnterSumoArena()
 
   GetCurrentDungeon()->SaveLevel(SaveName(), 0);
   charactervector test;
-  EnterArea(test, 1, STAIRS_UP);
+
+  if(!EnterArea(test, 1, STAIRS_UP))
+    ABORT("The sumo arena has no usable place for you to arrive!");
+
   MirrorSumo->PutTo(SUMO_ARENA_POS + v2(6, 5));
   MirrorSumo->ChangeTeam(GetTeam(SUMO_TEAM));
   GetCurrentLevel()->GetLSquare(SUMO_ARENA_POS)->GetRoom()->SetMasterID(MirrorSumo->GetID());
@@ -2870,7 +3229,10 @@ truth game::TryToExitSumoArena()
     GetCurrentLevel()->CollectEverything(IVector, CVector);
     GetCurrentDungeon()->SaveLevel(SaveName(), 1);
     std::vector<character*> test;
-    EnterArea(test, 0, STAIRS_DOWN);
+
+    if(!EnterArea(test, 0, STAIRS_DOWN))
+      ABORT("There is no room for you to leave the sumo arena!");
+
     Player->GetStackUnder()->AddItems(IVector);
 
     if(!IVector.empty())
@@ -2920,7 +3282,10 @@ truth game::EndSumoWrestling(int Result)
   GetCurrentLevel()->CollectEverything(IVector, CVector);
   GetCurrentDungeon()->SaveLevel(SaveName(), 1);
   charactervector test;
-  EnterArea(test, 0, STAIRS_DOWN);
+
+  if(!EnterArea(test, 0, STAIRS_DOWN))
+    ABORT("There is no room for you to return from the sumo arena!");
+
   SumoWrestling = false;
   Player->GetStackUnder()->AddItems(IVector);
   v2 PlayerPos = Player->GetPos();

@@ -28,7 +28,14 @@ worldmap::worldmap() { }
 continent* worldmap::GetContinentUnder(v2 Pos) const
 { return Continent[ContinentBuffer[Pos.X][Pos.Y]]; }
 v2 worldmap::GetEntryPos(const character*, int I) const
-{ return EntryMap.find(I)->second; }
+{
+  std::map<int, v2>::const_iterator Entry = EntryMap.find(I);
+
+  if(Entry == EntryMap.end())
+    ABORT("worldmap::GetEntryPos: no world entry registered for key %d!", I);
+
+  return Entry->second;
+}
 continent* worldmap::GetContinent(int I) const { return Continent[I]; }
 int worldmap::GetAltitude(v2 Pos) { return AltitudeBuffer[Pos.X][Pos.Y]; }
 charactervector& worldmap::GetPlayerGroup() { return PlayerGroup; }
@@ -70,6 +77,9 @@ worldmap::~worldmap()
 
 void worldmap::Save(outputfile& SaveFile) const
 {
+  /* EntryMap has to survive the round trip: it holds the exact world tile a
+     wilderness area must return to. area::Save()/Load() already serialize it,
+     so worldmap only has to go through them. */
   area::Save(SaveFile);
   SaveFile.Write(reinterpret_cast<char*>(TypeBuffer[0]),
 		 XSizeTimesYSize * sizeof(uchar));

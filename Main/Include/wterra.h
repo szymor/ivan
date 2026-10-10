@@ -66,6 +66,9 @@ class gwterrain : public wterrain, public gterrain
   virtual int GetEntryDifficulty() const { return 10; }
   virtual const prototype* GetProtoType() const = 0;
   int GetType() const { return GetProtoType()->GetIndex(); }
+  /* The internal wilderness storage container this ground terrain belongs to,
+     or 0 for terrains that cannot be entered. */
+  virtual int GetAttachedDungeon() const { return 0; }
   void CalculateNeighbourBitmapPoses();
   virtual int GetWalkability() const;
  protected:

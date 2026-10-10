@@ -14,6 +14,9 @@ include(GNUInstallDirs)
 # ----------------------------------------------------------------- options ---
 
 option(IVAN_WIZARD "Enable wizard (cheat/debug) mode, as the old Windows builds did" OFF)
+option(IVAN_WILDERNESS_TEST
+        "Build the --wildernesstest diagnostic mode that generates and validates wilderness maps headlessly"
+        OFF)
 option(IVAN_INSTALL_PERMS
        "On install: additionally chown/chgrp the highscore file, Bones/ and the binary to the 'games' group and set the binary's setgid bit (needs root)"
        OFF)
@@ -81,6 +84,19 @@ target_compile_definitions(ivan_build_flags INTERFACE
 
 if(IVAN_WIZARD)
   target_compile_definitions(ivan_build_flags INTERFACE WIZARD)
+endif()
+
+if(IVAN_WILDERNESS_TEST)
+  # The diagnostic drives the game through POSIX process, environment and file
+  # APIs (mkdtemp, fork/exec, dirent, setenv), so it is not portable to the
+  # Windows/DOS builds. Say so at configure time instead of failing to compile.
+  if(WIN32)
+    message(FATAL_ERROR
+            "IVAN_WILDERNESS_TEST=ON is only supported on POSIX platforms; "
+            "the diagnostic uses fork/exec, mkdtemp and dirent.")
+  endif()
+
+  target_compile_definitions(ivan_build_flags INTERFACE WILDERNESS_TEST_HARNESS)
 endif()
 
 if(UNIX)

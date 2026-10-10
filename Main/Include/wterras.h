@@ -14,6 +14,7 @@
 #define __WTERRAS_H__
 
 #include "wterra.h"
+#include "ivandef.h"
 
 GWTERRAIN(ocean, gwterrain)
 {
@@ -23,6 +24,7 @@ GWTERRAIN(ocean, gwterrain)
   virtual truth UsesLongArticle() const { return true; }
   virtual v2 GetBitmapPos(int) const;
   virtual int GetPriority() const { return 10; }
+  virtual int GetAttachedDungeon() const { return WILDERNESS_OCEAN; }
   virtual const char* SurviveMessage() const;
   virtual const char* MonsterSurviveMessage() const;
   virtual const char* DeathMessage() const;
@@ -38,6 +40,7 @@ GWTERRAIN(glacier, gwterrain)
   virtual const char* GetNameStem() const;
   virtual v2 GetBitmapPos(int) const;
   virtual int GetPriority() const { return 90; }
+  virtual int GetAttachedDungeon() const { return WILDERNESS_GLACIER; }
 };
 
 GWTERRAIN(desert, gwterrain)
@@ -46,6 +49,7 @@ GWTERRAIN(desert, gwterrain)
   virtual const char* GetNameStem() const;
   virtual v2 GetBitmapPos(int) const;
   virtual int GetPriority() const { return 20; }
+  virtual int GetAttachedDungeon() const { return WILDERNESS_DESERT; }
 };
 
 GWTERRAIN(snow, gwterrain)
@@ -54,6 +58,7 @@ GWTERRAIN(snow, gwterrain)
   virtual const char* GetNameStem() const;
   virtual v2 GetBitmapPos(int) const;
   virtual int GetPriority() const { return 80; }
+  virtual int GetAttachedDungeon() const { return WILDERNESS_TUNDRA; }
 };
 
 GWTERRAIN(jungle, gwterrain)
@@ -62,6 +67,7 @@ GWTERRAIN(jungle, gwterrain)
   virtual const char* GetNameStem() const;
   virtual v2 GetBitmapPos(int) const;
   virtual int GetPriority() const { return 50; }
+  virtual int GetAttachedDungeon() const { return WILDERNESS_JUNGLE; }
 };
 
 GWTERRAIN(leafyforest, gwterrain)
@@ -69,6 +75,7 @@ GWTERRAIN(leafyforest, gwterrain)
   virtual const char* GetNameStem() const;
   virtual v2 GetBitmapPos(int) const;
   virtual int GetPriority() const { return 60; }
+  virtual int GetAttachedDungeon() const { return WILDERNESS_LEAFY_FOREST; }
 };
 
 GWTERRAIN(evergreenforest, gwterrain)
@@ -78,6 +85,7 @@ GWTERRAIN(evergreenforest, gwterrain)
   virtual v2 GetBitmapPos(int) const;
   virtual truth UsesLongArticle() const { return true; }
   virtual int GetPriority() const { return 70; }
+  virtual int GetAttachedDungeon() const { return WILDERNESS_EVERGREEN_FOREST; }
 };
 
 GWTERRAIN(steppe, gwterrain)
@@ -86,6 +94,7 @@ GWTERRAIN(steppe, gwterrain)
   virtual const char* GetNameStem() const;
   virtual v2 GetBitmapPos(int) const;
   virtual int GetPriority() const { return 30; }
+  virtual int GetAttachedDungeon() const { return WILDERNESS_STEPPE; }
 };
 
 OWTERRAIN(attnam, owterrain)

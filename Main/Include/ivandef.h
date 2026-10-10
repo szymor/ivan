@@ -493,6 +493,53 @@ const v2 SILHOUETTE_SIZE(48, 64);
 #define ATTNAM 2
 #define NEW_ATTNAM 3
 #define UNDER_WATER_TUNNEL 4
+
+/* Internal storage containers for enterable world-map tiles. These are not
+   extra locations on the world map; each one holds the generated local maps
+   of a single biome. The ids must stay contiguous (WILDERNESS_JUNGLE ..
+   WILDERNESS_OCEAN) and must never reach WORLD_MAP. */
+
+#define WILDERNESS_JUNGLE 5
+#define WILDERNESS_LEAFY_FOREST 6
+#define WILDERNESS_EVERGREEN_FOREST 7
+#define WILDERNESS_STEPPE 8
+#define WILDERNESS_DESERT 9
+#define WILDERNESS_TUNDRA 10
+#define WILDERNESS_GLACIER 11
+#define WILDERNESS_OCEAN 12
+#define WILDERNESS_DUNGEON_FIRST WILDERNESS_JUNGLE
+#define WILDERNESS_DUNGEON_LAST WILDERNESS_OCEAN
+
+/* Entrance keys into a local level and back into the world map. The return
+   key is derived from the world tile and starts above every named world
+   entry (ATTNAM=2 .. UNDER_WATER_TUNNEL_EXIT=128), so 256 is safe. */
+
+#define WILDERNESS_LOCAL_ENTRY 1
+#define WILDERNESS_RETURN_ENTRY_BASE 256
+
+/* The world is a fixed-size grid. A local level slot is derived from a tile
+   coordinate, so the storage capacity must match the world dimensions. The
+   slot WORLD_MAP (255) is deliberately skipped: a local level index must
+   never equal this area sentinel. */
+
+#define WORLD_MAP_WIDTH 128
+#define WORLD_MAP_HEIGHT 128
+#define WILDERNESS_TILE_COUNT (WORLD_MAP_WIDTH * WORLD_MAP_HEIGHT)
+#define WILDERNESS_LEVEL_SLOTS (WILDERNESS_TILE_COUNT + 1)
+
+/* A local level slot is derived from a world tile id. Slot WORLD_MAP (255) is
+   deliberately skipped so a slot can never equal that area sentinel; the
+   inverse mapping must not be applied to the unused slot. */
+
+inline int WildernessSlotFromTileID(int TileID)
+{ return TileID < WORLD_MAP ? TileID : TileID + 1; }
+
+inline int WildernessTileIDFromSlot(int Slot)
+{ return Slot < WORLD_MAP ? Slot : Slot - 1; }
+
+inline int WildernessReturnEntry(int TileID)
+{ return WILDERNESS_RETURN_ENTRY_BASE + TileID; }
+
 #define UNDER_WATER_TUNNEL_EXIT 0x80
 
 #define VESANA_LEVEL 2
@@ -652,6 +699,7 @@ const v2 SILHOUETTE_SIZE(48, 64);
 #define EVERGREEN_FOREST 5
 #define TUNDRA 6
 #define GLACIER 7
+#define OCEAN_LEVEL 8
 
 #define NO_MOVE 0
 #define WALK 1
