@@ -44,7 +44,7 @@ class room
 {
  public:
   typedef roomprototype prototype;
-  room() : LastMasterSearchTick(0), MasterID(0) { }
+  room() : Master(0), LastMasterSearchTick(0), MasterID(0) { }
   virtual ~room() { }
   virtual void Save(outputfile&) const;
   virtual void Load(inputfile&);

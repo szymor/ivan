@@ -216,7 +216,7 @@ class level : public area
   void PopulateWilderness(v2);
   void PrepareWildernessEntry();
   int GetWildernessGroundConfig() const;
-  void ForceWildernessExitRoutes();
+  void ForceWildernessExitRoutes(v2);
   truth WildernessRouteExists(v2, v2) const;
   truth WildernessWideRouteExists(v2, v2) const;
   truth WildernessSquareReachable(v2, v2, int) const;
@@ -254,6 +254,40 @@ class level : public area
   void EnableGlobalRain();
   void DisableGlobalRain();
   void InitLastSeen();
+  /* Wilderness weather. A level that is a wilderness biome owns a small cycle
+     of clear and precipitation spells, instead of the fixed scripted rain the
+     named locations use. The phase is created at generation -- before a
+     refused entry can be written out -- and is serialized, so a plain save, an
+     autosave or a leave/re-enter resumes the same spell rather than rolling a
+     fresh one. The schedule is seeded from the level's own tile identity, so
+     two jungles never switch weather in lockstep. */
+  truth HasWeather() const { return WeatherEnabled; }
+  /* Wilderness precipitation is deliberately visual only: it never spills
+     standing liquid, so a long spell cannot flood a map or bury dropped items,
+     and it never repaints persistent terrain. */
+  truth IsWeatherVisualOnly() const { return WeatherEnabled; }
+  void InitializeWeather();
+  void UpdateWeather();
+  void ApplyWeatherState();
+  int GetWeatherState() const { return WeatherState; }
+  long GetWeatherTimer() const { return WeatherTimer; }
+  /* Changes the precipitation wind and pushes it into every global-rain square,
+     because setting only the game binding would leave the existing rain
+     objects falling with their old speed. */
+  void SetGlobalRainSpeed(v2);
+#ifdef WILDERNESS_TEST_HARNESS
+  /* Pin a state and its remaining duration so a test can drive every
+     transition and every biome without waiting out thousands of ticks. */
+  void ForceWeatherForTest(int State, long Duration);
+  /* The duration range and intensity a biome allows for one state, so the test
+     can check them against the profile rather than a hard-coded copy. */
+  void GetWeatherDurationBoundsForTest(int State, int& Min, int& Max) const;
+  int GetWeatherStateVolumeForTest(int State) const;
+  /* Ticks this level's precipitation drops the way an active spell would,
+     without stepping the whole global entity pool. */
+  void TickWeatherForTest(int Times);
+  truth GlobalRainsHaveSpeedForTest(v2) const;
+#endif
   lsquare** GetSquareStack() const { return SquareStack; }
   col24 GetNightAmbientLuminance() const { return NightAmbientLuminance; }
   int DetectMaterial(const material*);
@@ -308,6 +342,14 @@ class level : public area
   int EnchantmentMinusChance;
   int EnchantmentPlusChance;
   truth FirstEntryInitDone;
+  /* Wilderness weather state. WeatherEnabled is derived from the biome at
+     generation and after a load, so it is not serialized; the current state,
+     the ticks left in it and the per-tile random stream are, so a resumed game
+     continues the same spell. */
+  truth WeatherEnabled;
+  int WeatherState;
+  long WeatherTimer;
+  ulong WeatherRandomState;
 };
 
 outputfile& operator<<(outputfile&, const level*);

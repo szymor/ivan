@@ -121,6 +121,26 @@ solidterrain /* glterrain-> */
     NameSingular = "ground";
     BitmapPos = 32, 32;
   }
+
+  /* Forest litter used under closed temperate/tropical stands, so a dense
+     forest floor does not read as uniform lawn. */
+  Config FOREST_FLOOR;
+  {
+    OKVisualEffects = MIRROR|FLIP|ROTATE;
+    MainMaterialConfig == HUMUS;
+    NameSingular = "forest floor";
+    BitmapPos = 16, 16;
+  }
+
+  /* Exposed glacier ice: a continuous pale-blue surface variant alongside the
+     snow that covers most of a glacier. */
+  Config GLACIER_ICE;
+  {
+    OKVisualEffects = MIRROR|FLIP|ROTATE;
+    MainMaterialConfig == ICE;
+    NameSingular = "ice";
+    BitmapPos = 16, 16;
+  }
 }
 
 liquidterrain /* glterrain-> */

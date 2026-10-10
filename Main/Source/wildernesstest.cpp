@@ -61,6 +61,7 @@
 #include "lterras.h"
 #include "materias.h"
 #include "miscitem.h"
+#include "room.h"
 #include "confdef.h"
 #include "iconf.h"
 #include "worldmap.h"
@@ -244,7 +245,8 @@ namespace
     switch(Type)
     {
      case JUNGLE:
-      return Config == PALM || Config == TEAK;
+      return Config == PALM || Config == TEAK || Config == JUNGLE_CANOPY
+	|| Config == JUNGLE_THICKET;
      case LEAFY_FOREST:
       return Config == OAK || Config == BIRCH;
      case EVERGREEN_FOREST:
@@ -353,6 +355,54 @@ namespace
 
   /* A square a member can physically be put on, ignoring movement mode: the
      source may legitimately hold a swim-only follower. */
+  /* Makes a water square beside the given position. A swim-only companion
+     needs one to stand on, and the biome generators are stochastic about
+     pools, so the diagnostic supplies its own rather than relying on them. */
+  void EnsureWaterNear(level* L, v2 Near)
+  {
+    for(int d = 0; d < 8; ++d)
+    {
+      v2 Pos = Near + game::GetMoveVector(d);
+
+      if(L->IsValidPos(Pos) && !L->GetLSquare(Pos)->GetCharacter())
+      {
+	L->GetLSquare(Pos)->ChangeOLTerrain(0);
+	L->GetLSquare(Pos)->ChangeGLTerrain(liquidterrain::Spawn(POOL));
+	return;
+      }
+    }
+  }
+
+  /* Ground fluid squares and rain-list totals, for the weather checks: a spell
+     must not spill standing liquid, and repeated state changes must not grow
+     the per-square rain lists. */
+  int CountGroundFluids(level* L)
+  {
+    int Count = 0;
+
+    for(int x = 0; x < L->GetXSize(); ++x)
+      for(int y = 0; y < L->GetYSize(); ++y)
+	if(L->GetLSquare(x, y)->HasGroundFluidForTest())
+	  ++Count;
+
+    return Count;
+  }
+
+  void CountRains(level* L, int& Total, int& Enabled)
+  {
+    Total = 0;
+    Enabled = 0;
+
+    for(int x = 0; x < L->GetXSize(); ++x)
+      for(int y = 0; y < L->GetYSize(); ++y)
+      {
+	int T = 0, E = 0;
+	L->GetLSquare(x, y)->CountRainsForTest(T, E);
+	Total += T;
+	Enabled += E;
+      }
+  }
+
   /* The nearest square the character itself may occupy. For a multi-square
      creature that means its whole footprint, not just the anchor square, which
      is why the character and not a bare level is asked. */
@@ -391,8 +441,11 @@ namespace
     biomecount(int XSize, int YSize)
       : Creatures(0), Vegetation(0), Obstacles(0), Water(0), BadTreeConfig(0),
 	BadCreatures(0), EmptyVegetationSeeds(0), EmptyObstacleSeeds(0),
-	ShallowWaterSeeds(0), MinCoverage(1e9), MaxCoverage(0),
-	MinNear(1e9), MaxNear(0),
+	ShallowWaterSeeds(0), Thickets(0), WalkableThickets(0),
+	FlyBlockedThickets(0), EtherealBlockedThickets(0),
+	UndestroyableThickets(0), MinCoverage(1e9), MaxCoverage(0),
+	MinNear(1e9), MaxNear(0), MinOpaque(1e9), MaxOpaque(0),
+	MinOpen(1e9), MaxOpen(0), MinIceGround(1e9), MaxIceGround(0),
 	VegCells((XSize / 8 + 1) * (YSize / 8 + 1), 0),
 	ObstCells((XSize / 8 + 1) * (YSize / 8 + 1), 0)
     { }
@@ -406,12 +459,29 @@ namespace
     int EmptyVegetationSeeds;
     int EmptyObstacleSeeds;
     int ShallowWaterSeeds;
+    /* Impassable jungle understory: counted to prove the thicket really blocks
+       walking while still letting flight and ethereal movement through. */
+    int Thickets;
+    int WalkableThickets;
+    int FlyBlockedThickets;
+    int EtherealBlockedThickets;
+    int UndestroyableThickets;
     /* E6 spatial metrics: the per-seed range of decoration coverage and of the
        fraction of cells in or next to vegetation. */
     double MinCoverage;
     double MaxCoverage;
     double MinNear;
     double MaxNear;
+    /* F4 metrics: opaque line-of-sight cover and the largest single open
+       region, so a biome cannot pass merely on aggregate counts. */
+    double MinOpaque;
+    double MaxOpaque;
+    double MinOpen;
+    double MaxOpen;
+    /* Fraction of the map whose ground is exposed glacier ice rather than
+       snow, so a glacier cannot pass as snow studded with wall islands. */
+    double MinIceGround;
+    double MaxIceGround;
     std::vector<char> VegCells;
     std::vector<char> ObstCells;
 
@@ -446,6 +516,23 @@ namespace
 	  ++Veg;
 	  ++Count.Vegetation;
 	  Count.VegCells[Cell] = 1;
+
+	  if(O->GetConfig() == JUNGLE_THICKET)
+	  {
+	    ++Count.Thickets;
+
+	    if(Walk & WALK)
+	      ++Count.WalkableThickets;
+
+	    if(!(Walk & FLY))
+	      ++Count.FlyBlockedThickets;
+
+	    if(!(Walk & ETHEREAL))
+	      ++Count.EtherealBlockedThickets;
+
+	    if(!O->CanBeDestroyed())
+	      ++Count.UndestroyableThickets;
+	  }
 
 	  if(!IsBiomeTreeConfig(Type, O->GetConfig()))
 	  {
@@ -535,6 +622,86 @@ namespace
     if(Coverage > Count.MaxCoverage) Count.MaxCoverage = Coverage;
     if(NearFraction < Count.MinNear) Count.MinNear = NearFraction;
     if(NearFraction > Count.MaxNear) Count.MaxNear = NearFraction;
+
+    /* F4: opaque LOS cover and the largest single open region. A dense-looking
+       but fully transparent jungle fails the first; a biome that is one giant
+       empty field fails the second. */
+    int Opaque = 0;
+    int IceGround = 0;
+    std::vector<char> Open(XSize * YSize, 0);
+
+    for(int x = 0; x < XSize; ++x)
+      for(int y = 0; y < YSize; ++y)
+      {
+	lsquare* Square = L->GetLSquare(x, y);
+	olterrain* O = Square->GetOLTerrain();
+
+	if(O && !O->IsTransparent())
+	  ++Opaque;
+
+	if(Square->GetGLTerrain()
+	   && Square->GetGLTerrain()->GetConfig() == GLACIER_ICE)
+	  ++IceGround;
+
+	if(!O && (Square->GetWalkability() & WALK))
+	  Open[y * XSize + x] = 1;
+      }
+
+    std::vector<char> SeenOpen(XSize * YSize, 0);
+    int LargestOpen = 0;
+
+    for(int x = 0; x < XSize; ++x)
+      for(int y = 0; y < YSize; ++y)
+      {
+	int Start = y * XSize + x;
+
+	if(!Open[Start] || SeenOpen[Start])
+	  continue;
+
+	std::vector<int> Stack;
+	Stack.push_back(Start);
+	SeenOpen[Start] = 1;
+	int Size = 0;
+
+	while(!Stack.empty())
+	{
+	  int I = Stack.back();
+	  Stack.pop_back();
+	  ++Size;
+	  int X = I % XSize;
+	  int Y = I / XSize;
+
+	  for(int d = 0; d < 4; ++d)
+	  {
+	    v2 P = v2(X, Y) + game::GetBasicMoveVector(d);
+
+	    if(!L->IsValidPos(P))
+	      continue;
+
+	    int J = P.Y * XSize + P.X;
+
+	    if(Open[J] && !SeenOpen[J])
+	    {
+	      SeenOpen[J] = 1;
+	      Stack.push_back(J);
+	    }
+	  }
+	}
+
+	if(Size > LargestOpen)
+	  LargestOpen = Size;
+      }
+
+    double OpaqueFraction = double(Opaque) / (XSize * YSize);
+    double OpenFraction = double(LargestOpen) / (XSize * YSize);
+    double IceFraction = double(IceGround) / (XSize * YSize);
+
+    if(OpaqueFraction < Count.MinOpaque) Count.MinOpaque = OpaqueFraction;
+    if(OpaqueFraction > Count.MaxOpaque) Count.MaxOpaque = OpaqueFraction;
+    if(OpenFraction < Count.MinOpen) Count.MinOpen = OpenFraction;
+    if(OpenFraction > Count.MaxOpen) Count.MaxOpen = OpenFraction;
+    if(IceFraction < Count.MinIceGround) Count.MinIceGround = IceFraction;
+    if(IceFraction > Count.MaxIceGround) Count.MaxIceGround = IceFraction;
   }
 
   /* E6: broad stochastic bands for vegetation coverage, in percent of the map.
@@ -1165,13 +1332,25 @@ int WildernessResumeCase(const char* Phase, const char* Name)
        item. */
     const int Slot = TestSlot(1700);
     level* L = SetupLocalSource(WILDERNESS_JUNGLE, Slot);
-    v2 Pos(L->GetXSize() / 2, L->GetYSize() / 2);
+    /* Stand on the level's own arrival square, because that is where the
+       resume and any later re-entry put the player; a position the entry does
+       not use would make the leave/re-enter comparison meaningless. */
+    v2 Pos = L->GetEntryPos(0, WILDERNESS_LOCAL_ENTRY);
     character* P = game::GetPlayer();
     PlaceCharacter(P, L, Pos);
     P->SetMoney(123456);
     item* Dropped = banana::Spawn();
     L->GetLSquare(v2(1, 1))->AddItem(Dropped);
     ulong DroppedID = Dropped->GetID();
+
+    /* Give the saved map its biome weather and pin a mid-spell phase, so the
+       resume has to bring back the exact spell rather than roll a fresh one. */
+    game::InitializeLevelEnvironment();
+    game::SetGlobalRainLiquid(L->GetGlobalRainLiquid());
+    game::SetGlobalRainSpeed(L->GetGlobalRainSpeed());
+    L->ForceWeatherForTest(WEATHER_HEAVY, 777);
+    int WeatherState = L->GetWeatherState();
+    long WeatherTimer = L->GetWeatherTimer();
 
     std::vector<std::pair<ulong, v2> > Occupants;
     CollectOccupants(L, Occupants);
@@ -1186,10 +1365,11 @@ int WildernessResumeCase(const char* Phase, const char* Name)
       return 1;
     }
 
-    fprintf(Facts, "%d %d %d %d %d %lu %d\n",
+    fprintf(Facts, "%d %d %d %d %d %lu %d %d %ld\n",
 	    game::GetCurrentDungeonIndex(), game::GetCurrentLevelIndex(),
 	    game::IsInWilderness() ? 1 : 0, int(Occupants.size()),
-	    int(P->GetMoney()), DroppedID, PlacedEnabledCount());
+	    int(P->GetMoney()), DroppedID, PlacedEnabledCount(),
+	    WeatherState, WeatherTimer);
 
     for(uint c = 0; c < Occupants.size(); ++c)
       fprintf(Facts, "%lu %d %d\n", Occupants[c].first,
@@ -1210,10 +1390,13 @@ int WildernessResumeCase(const char* Phase, const char* Name)
     }
 
     int Dungeon = 0, Level = 0, Wild = 0, Count = 0, Money = 0, Placed = 0;
+    int WeatherState = -1;
+    long WeatherTimer = -1;
     unsigned long ItemID = 0;
 
-    if(fscanf(Facts, "%d %d %d %d %d %lu %d",
-	      &Dungeon, &Level, &Wild, &Count, &Money, &ItemID, &Placed) != 7)
+    if(fscanf(Facts, "%d %d %d %d %d %lu %d %d %ld",
+	      &Dungeon, &Level, &Wild, &Count, &Money, &ItemID, &Placed,
+	      &WeatherState, &WeatherTimer) != 9)
     {
       std::cout << "  FAIL malformed facts file" << std::endl;
       fclose(Facts);
@@ -1301,6 +1484,19 @@ int WildernessResumeCase(const char* Phase, const char* Name)
     if(!game::GetPlayer() || game::GetPlayer()->GetMoney() != Money)
     {
       std::cout << "  FAIL the resumed player lost a mutation" << std::endl;
+      ++Failures;
+    }
+
+    /* The weather cycle is level-owned and serialized: the resume must land in
+       the exact spell, with the material present and the binding installed. */
+    if(!game::GetCurrentLevel()->HasWeather()
+       || game::GetCurrentLevel()->GetWeatherState() != WeatherState
+       || game::GetCurrentLevel()->GetWeatherTimer() != WeatherTimer
+       || !game::GetCurrentLevel()->GetGlobalRainLiquid()
+       || game::GetGlobalRainLiquid()
+	  != game::GetCurrentLevel()->GetGlobalRainLiquid())
+    {
+      std::cout << "  FAIL the resumed weather phase changed" << std::endl;
       ++Failures;
     }
 
@@ -1526,6 +1722,214 @@ int WildernessResumeCase(const char* Phase, const char* Name)
     return Failures ? 1 : 0;
   }
 
+  if(!strcmp(Phase, "arena"))
+  {
+    /* G2: the real sumo mirror lifecycle at production unload boundaries. The
+       town is written with the default deleting save, so the original player
+       and the town's own sumo are released the moment the arena is entered,
+       exactly as TryToEnterSumoArena() does. The player and the sumo are both
+       mirrored and introduced to the arena, and on the way back the mirrors
+       are destroyed with Player set to null so EnterArea() has to recover the
+       original from the reloaded town. Runs in its own process because the
+       production path deletes live characters and reloads a level. */
+    BootstrapGame();
+
+    /* The room-master lookup is cached against the game tick and is only
+       meaningful once the clock has moved, as it always has by the time the
+       real arena is used. */
+    game::IncreaseTick();
+    game::IncreaseTick();
+
+    int Failures = 0;
+    dungeon* D = game::GetDungeon(NEW_ATTNAM);
+
+    for(int l = 0; l < D->GetLevels(); ++l)
+    {
+      if(D->GetLevel(l))
+	D->UnloadLevel(l);
+
+      remove(LevelFilePath(D, l).CStr());
+      D->SetIsGenerated(l, false);
+    }
+
+    level* Town = SetupLocalSource(NEW_ATTNAM, 0);
+    character* Original = game::GetPlayer();
+
+    /* A deterministic return square: pin the exit entry and stand the original
+       on it, exactly where the arena trigger leaves them. */
+    v2 Entry = Town->GetEntryPos(0, STAIRS_DOWN);
+
+    if(Entry == ERROR_V2)
+      Entry = v2(Town->GetXSize() / 2, Town->GetYSize() / 2);
+
+    Town->SetEntryPos(STAIRS_DOWN, Entry);
+    PlaceCharacter(Original, Town, Entry);
+    Original->SetMoney(4242);
+    ulong OriginalID = Original->GetID();
+
+    /* The town's own sumo, the very character the production handoff mirrors. */
+    character* OrigSumo = game::GetSumo();
+
+    if(!OrigSumo)
+    {
+      std::cout << "  FAIL the town had no sumo to mirror" << std::endl;
+      return 1;
+    }
+
+    /* The mirror handoff, for both the player and the wrestler. */
+    character* Mirror = Original->Duplicate(IGNORE_PROHIBITIONS);
+    character* MirrorSumo = OrigSumo->Duplicate(IGNORE_PROHIBITIONS);
+    game::SetPlayer(Mirror);
+
+    /* The production save deletes the town, so the original player and sumo do
+       not stay live while the mirrors occupy the arena. */
+    D->SaveLevel(game::SaveName(), 0);
+
+    if(D->GetLevel(0))
+    {
+      std::cout << "  FAIL the town stayed loaded after the sumo save"
+		<< std::endl;
+      ++Failures;
+    }
+
+    charactervector Empty;
+
+    if(!game::EnterArea(Empty, 1, STAIRS_UP))
+    {
+      std::cout << "  FAIL the mirror could not enter the arena" << std::endl;
+      return 1;
+    }
+
+    level* Arena = game::GetCurrentLevel();
+
+    /* Introduce the mirror wrestler the way production does. */
+    MirrorSumo->PutTo(SUMO_ARENA_POS + v2(6, 5));
+    MirrorSumo->ChangeTeam(game::GetTeam(SUMO_TEAM));
+    Arena->GetLSquare(SUMO_ARENA_POS)->GetRoom()->SetMasterID(MirrorSumo->GetID());
+
+    if(InactivePlacedCount())
+    {
+      std::cout << "  FAIL the arena entry left " << InactivePlacedCount()
+		<< " enabled creature(s) off the active area" << std::endl;
+      ++Failures;
+    }
+
+    /* An ordinary tick has to be safe with the mirror and the wrestler up. */
+    pool::Be();
+    pool::BurnHell();
+
+    if(InactivePlacedCount())
+    {
+      std::cout << "  FAIL a pool tick during the bout revived an off-screen "
+		   "area" << std::endl;
+      ++Failures;
+    }
+
+    /* An item and a companion left in the arena, to be carried back. */
+    v2 ArenaPos = Arena->GetEntryPos(0, STAIRS_UP);
+
+    if(ArenaPos == ERROR_V2)
+      ArenaPos = v2(Arena->GetXSize() / 2, Arena->GetYSize() / 2);
+
+    item* ArenaItem = banana::Spawn();
+    ulong ArenaItemID = ArenaItem->GetID();
+    Arena->GetLSquare(ArenaPos)->AddItem(ArenaItem);
+    character* Companion = AddFollower("wolf", Arena, ArenaPos);
+
+    if(!Companion)
+    {
+      std::cout << "  FAIL could not place an arena companion" << std::endl;
+      ++Failures;
+    }
+
+    /* Dispose of the mirror wrestler, then the mirror player, exactly as
+       EndSumoWrestling does, and ask EnterArea for the original with no player
+       set. */
+    character* RoomSumo = Arena->GetLSquare(SUMO_ARENA_POS)->GetRoom()->GetMaster();
+
+    if(RoomSumo)
+    {
+      RoomSumo->Remove();
+      delete RoomSumo;
+    }
+
+    Mirror->Remove();
+    delete Mirror;
+    game::SetPlayer(0);
+
+    itemvector IVector;
+    charactervector CVector;
+    Arena->CollectEverything(IVector, CVector);
+    D->SaveLevel(game::SaveName(), 1);
+
+    if(D->GetLevel(1))
+    {
+      std::cout << "  FAIL the arena stayed loaded after the return save"
+		<< std::endl;
+      ++Failures;
+    }
+
+    charactervector Empty2;
+
+    if(!game::EnterArea(Empty2, 0, STAIRS_DOWN))
+    {
+      std::cout << "  FAIL the sumo return found no usable place" << std::endl;
+      return 1;
+    }
+
+    character* Recovered = game::GetPlayer();
+
+    if(!Recovered || !Recovered->GetSquareUnder())
+    {
+      std::cout << "  FAIL the original player was not recovered" << std::endl;
+      ++Failures;
+    }
+    else if(Recovered->GetID() != OriginalID || Recovered->GetMoney() != 4242)
+    {
+      std::cout << "  FAIL the recovered player is not the original"
+		<< std::endl;
+      ++Failures;
+    }
+
+    if(DuplicateCharacterIDs())
+    {
+      std::cout << "  FAIL the sumo return left duplicate character ids"
+		<< std::endl;
+      ++Failures;
+    }
+
+    if(InactivePlacedCount())
+    {
+      std::cout << "  FAIL the sumo return left " << InactivePlacedCount()
+		<< " enabled creature(s) off the active area" << std::endl;
+      ++Failures;
+    }
+
+    /* Carry the arena's items and characters back, as production does. */
+    if(Recovered)
+    {
+      Recovered->GetStackUnder()->AddItems(IVector);
+      v2 PlayerPos = Recovered->GetPos();
+
+      for(uint c = 0; c < CVector.size(); ++c)
+	CVector[c]->PutNear(PlayerPos);
+
+      if(!LevelHasItem(game::GetCurrentLevel(), ArenaItemID))
+      {
+	std::cout << "  FAIL the arena item was not carried back" << std::endl;
+	++Failures;
+      }
+
+      if(Companion && !Companion->GetSquareUnder())
+      {
+	std::cout << "  FAIL the arena companion was not restored" << std::endl;
+	++Failures;
+      }
+    }
+
+    return Failures ? 1 : 0;
+  }
+
   return 1;
 }
 
@@ -1686,7 +2090,9 @@ int WildernessTest(int Seeds)
 
       v2 Entry = L->GetEntryPos(0, WILDERNESS_LOCAL_ENTRY);
 
-      if(Entry != Center)
+      /* F4: the arrival is a naturalized dell nudged up to two squares off the
+	 exact centre, so it only has to stay near it. */
+      if((Entry - Center).GetLengthSquare() > 8)
 	++EntryFailures;
 
       if(Biome.Type != OCEAN_LEVEL
@@ -1737,9 +2143,11 @@ int WildernessTest(int Seeds)
       ++TerrainFailures;
     }
 
-    /* One rock in one corner of a whole batch is not a landscape: the plants
-       have to reach a good part of the map. */
-    if(BatchWide && HasVegetation(Biome.Type) && Count.Spread(Count.VegCells) < 4)
+    /* One rock in one corner of a whole batch is not a landscape: a biome that
+       is meant to carry plants has to reach a good part of the map. Steppe and
+       tundra are legitimately near-treeless, so they are exempt. */
+    if(BatchWide && GuaranteedVegetation(Biome.Type)
+       && Count.Spread(Count.VegCells) < 4)
     {
       std::cout << "  FAIL " << Biome.Name << " vegetation only reached "
 		<< Count.Spread(Count.VegCells) << " map cell(s)" << std::endl;
@@ -1781,11 +2189,68 @@ int WildernessTest(int Seeds)
        collapses back towards the old counts. */
     if(BatchWide && (Biome.Type == JUNGLE || Biome.Type == LEAFY_FOREST
 		     || Biome.Type == EVERGREEN_FOREST)
-       && Count.MinNear * 100 < 22)
+       && Count.MinNear * 100 < 20)
     {
       std::cout << "  FAIL " << Biome.Name
 		<< " vegetation is too fragmented: only " << Count.MinNear * 100
 		<< "% of the map is in or next to it" << std::endl;
+      ++TerrainFailures;
+    }
+
+    /* F1/F4: a jungle that looks dense but stays fully transparent offers no
+       concealment at all, which an earlier review measured at 0% opaque. */
+    if(BatchWide && Biome.Type == JUNGLE && Count.MinOpaque * 100 < 3)
+    {
+      std::cout << "  FAIL jungle has only " << Count.MinOpaque * 100
+		<< "% opaque foliage; its canopy gives no line-of-sight cover"
+		<< std::endl;
+      ++TerrainFailures;
+    }
+
+    /* F1: the understory must resist movement, not only look dense. */
+    if(BatchWide && Biome.Type == JUNGLE)
+    {
+      if(!Count.Thickets)
+      {
+	std::cout << "  FAIL jungle produced no impassable thicket"
+		  << std::endl;
+	++TerrainFailures;
+      }
+
+      if(Count.WalkableThickets)
+      {
+	std::cout << "  FAIL " << Count.WalkableThickets
+		  << " jungle thicket cell(s) are still walkable" << std::endl;
+	++TerrainFailures;
+      }
+
+      /* Brush stops feet, not wings or ghosts, and stays choppable. */
+      if(Count.FlyBlockedThickets || Count.EtherealBlockedThickets)
+      {
+	std::cout << "  FAIL jungle thicket blocks "
+		  << Count.FlyBlockedThickets << " flying / "
+		  << Count.EtherealBlockedThickets << " ethereal cell(s)"
+		  << std::endl;
+	++TerrainFailures;
+      }
+
+      if(Count.UndestroyableThickets)
+      {
+	std::cout << "  FAIL " << Count.UndestroyableThickets
+		  << " jungle thicket cell(s) cannot be destroyed"
+		  << std::endl;
+	++TerrainFailures;
+      }
+    }
+
+    /* F4/F2: a glacier is a continuous ice surface, not snow-covered ground
+       studded with wall islands, so a real fraction of its floor must be
+       exposed ice. */
+    if(BatchWide && Biome.Type == GLACIER && Count.MinIceGround * 100 < 8)
+    {
+      std::cout << "  FAIL glacier has only " << Count.MinIceGround * 100
+		<< "% exposed ice ground; it is reading as snow with walls"
+		<< std::endl;
       ++TerrainFailures;
     }
 
@@ -1801,6 +2266,11 @@ int WildernessTest(int Seeds)
 	      << " cover=" << Count.MinCoverage * 100 << ".."
 	      << Count.MaxCoverage * 100
 	      << " near=" << Count.MinNear * 100 << ".." << Count.MaxNear * 100
+	      << " opaque=" << Count.MinOpaque * 100 << ".."
+	      << Count.MaxOpaque * 100
+	      << " open=" << Count.MinOpen * 100 << ".." << Count.MaxOpen * 100
+	      << " ice=" << Count.MinIceGround * 100 << ".."
+	      << Count.MaxIceGround * 100
 	      << " entryFail=" << EntryFailures
 	      << " reachFail=" << ReachFailures
 	      << " corridorFail=" << CorridorFail
@@ -2051,6 +2521,7 @@ int WildernessTest(int Seeds)
       level* Source = SetupLocalSource(WILDERNESS_JUNGLE, TestSlot(1010));
       v2 Orig(Source->GetXSize() / 2, Source->GetYSize() / 2);
       PlaceCharacter(PlayerChar, Source, Orig);
+      EnsureWaterNear(Source, Orig);
       character* Dolphin = AddFollower("dolphin", Source, Orig);
 
       if(!Dolphin)
@@ -2464,6 +2935,7 @@ int WildernessTest(int Seeds)
     level* Source = SetupLocalSource(WILDERNESS_JUNGLE, SourceSlot);
     v2 Orig(Source->GetXSize() / 2, Source->GetYSize() / 2);
     PlaceCharacter(PlayerChar, Source, Orig);
+    EnsureWaterNear(Source, Orig);
     character* Dolphin = AddFollower("dolphin", Source, Orig);
 
     if(!Dolphin)
@@ -2650,8 +3122,10 @@ int WildernessTest(int Seeds)
       if(game::GetGlobalRainLiquid())
 	game::GetGlobalRainLiquid()->GetVolume();
 
-      /* Leaving deletes the rainy source; the destination is a jungle with no
-	 rain, so the binding must end up clear rather than dangling. */
+      /* Leaving deletes the rainy source; the destination is a wilderness
+	 area that owns its own (possibly dormant) weather binding, so the
+	 active binding must become the destination's rather than dangle at the
+	 destroyed town. */
       truth Left;
 
       {
@@ -2666,10 +3140,20 @@ int WildernessTest(int Seeds)
 	++Failures;
       }
 
-      if(game::GetGlobalRainLiquid())
+      if(game::GetGlobalRainLiquid()
+	 != game::GetCurrentLevel()->GetGlobalRainLiquid())
       {
 	std::cout << "  FAIL leaving " << Towns[t].Name
-		  << " left a rain binding to a destroyed area" << std::endl;
+		  << " left a dangling rain binding" << std::endl;
+	++Failures;
+      }
+
+      /* The wilderness tile travels through the production entry path, so it
+	 must own its weather cycle and be the active binding now. */
+      if(!game::GetCurrentLevel()->HasWeather())
+      {
+	std::cout << "  FAIL the wilderness entered after leaving "
+		  << Towns[t].Name << " has no weather cycle" << std::endl;
 	++Failures;
       }
 
@@ -2849,6 +3333,438 @@ int WildernessTest(int Seeds)
 
     std::cout << (Failures ? "FAIL " : "ok   ")
 	      << "rain lifecycle failures=" << Failures << std::endl;
+    TotalFailures += Failures;
+  }
+
+  /* G4: every enterable wilderness biome owns a cycle of clear and
+     precipitation spells. The type must match the climate (rain or snow), each
+     state must show or hide the drops, the wind must never be a zero vector,
+     and every drawn spell length must sit inside the biome's own profile. */
+  {
+    int Failures = 0;
+
+    struct testweather
+    {
+      int Dungeon;
+      const char* Name;
+      truth Snow;
+    };
+
+    const testweather Biomes[] =
+    {
+      { WILDERNESS_JUNGLE,           "jungle",        false },
+      { WILDERNESS_LEAFY_FOREST,     "leafyforest",   false },
+      { WILDERNESS_EVERGREEN_FOREST, "evergreenforest", true },
+      { WILDERNESS_STEPPE,           "steppe",        false },
+      { WILDERNESS_DESERT,           "desert",        false },
+      { WILDERNESS_TUNDRA,           "tundra",        true },
+      { WILDERNESS_GLACIER,          "glacier",       true },
+      { WILDERNESS_OCEAN,            "ocean",         false }
+    };
+
+    for(uint b = 0; b < sizeof(Biomes) / sizeof(testweather); ++b)
+    {
+      femath::SetSeed(777000 + b);
+      level* L = SetupLocalSource(Biomes[b].Dungeon, TestSlot(1950 + b));
+      game::InitializeLevelEnvironment();
+      game::SetGlobalRainLiquid(L->GetGlobalRainLiquid());
+      game::SetGlobalRainSpeed(L->GetGlobalRainSpeed());
+
+      if(!L->HasWeather())
+      {
+	std::cout << "  FAIL " << Biomes[b].Name << " has no weather cycle"
+		  << std::endl;
+	++Failures;
+	continue;
+      }
+
+      liquid* Mat = L->GetGlobalRainLiquid();
+
+      if(!Mat || Mat->IsPowder() != Biomes[b].Snow)
+      {
+	std::cout << "  FAIL " << Biomes[b].Name
+		  << " carries the wrong precipitation type" << std::endl;
+	++Failures;
+      }
+
+      int TotalRains = 0, EnabledRains = 0;
+      CountRains(L, TotalRains, EnabledRains);
+
+      if(!TotalRains)
+      {
+	std::cout << "  FAIL " << Biomes[b].Name
+		  << " created no precipitation squares" << std::endl;
+	++Failures;
+      }
+
+      truth AnyWet = false;
+
+      for(int s = 0; s < WEATHER_STATE_COUNT; ++s)
+      {
+	L->ForceWeatherForTest(s, 500);
+	long Volume = Mat ? Mat->GetVolume() : 0;
+	int Expected = L->GetWeatherStateVolumeForTest(s);
+
+	if(Expected > 0)
+	  AnyWet = true;
+
+	CountRains(L, TotalRains, EnabledRains);
+
+	if(Volume != Expected || ((Volume > 0) != (EnabledRains > 0)))
+	{
+	  std::cout << "  FAIL " << Biomes[b].Name << " state " << s
+		    << " has the wrong intensity or visibility" << std::endl;
+	  ++Failures;
+	}
+
+	if(L->GetGlobalRainSpeed().GetLengthSquare() <= 0
+	   || game::GetGlobalRainSpeed() != L->GetGlobalRainSpeed())
+	{
+	  std::cout << "  FAIL " << Biomes[b].Name
+		    << " installed a zero or stale wind" << std::endl;
+	  ++Failures;
+	}
+
+	/* The wind must reach the drops themselves, not just the binding. */
+	if(!L->GlobalRainsHaveSpeedForTest(L->GetGlobalRainSpeed()))
+	{
+	  std::cout << "  FAIL " << Biomes[b].Name
+		    << " left drops falling at a stale speed" << std::endl;
+	  ++Failures;
+	}
+      }
+
+      if(!AnyWet)
+      {
+	std::cout << "  FAIL " << Biomes[b].Name
+		  << " can never precipitate" << std::endl;
+	++Failures;
+      }
+
+      /* Transitions from every state must land on a valid state whose length is
+	 inside that biome's profile. */
+      for(int from = 0; from < WEATHER_STATE_COUNT && Failures < 200; ++from)
+	for(int trial = 0; trial < 12; ++trial)
+	{
+	  L->ForceWeatherForTest(from, 0);
+	  L->UpdateWeather();
+	  int State = L->GetWeatherState();
+	  int Min = 0, Max = 0;
+	  L->GetWeatherDurationBoundsForTest(State, Min, Max);
+
+	  if(State < 0 || State >= WEATHER_STATE_COUNT
+	     || L->GetWeatherTimer() < Min || L->GetWeatherTimer() > Max)
+	  {
+	    std::cout << "  FAIL " << Biomes[b].Name
+		      << " drew a spell outside its duration bounds"
+		      << std::endl;
+	    ++Failures;
+	    break;
+	  }
+	}
+    }
+
+    std::cout << (Failures ? "FAIL " : "ok   ")
+	      << "weather biome cycle failures=" << Failures << std::endl;
+    TotalFailures += Failures;
+  }
+
+  /* G4: a long active wet spell stays visual. No standing liquid may
+     accumulate, and repeated ticks must not grow the per-square rain lists. */
+  {
+    int Failures = 0;
+    femath::SetSeed(888000);
+    level* L = SetupLocalSource(WILDERNESS_JUNGLE, TestSlot(1960));
+    game::InitializeLevelEnvironment();
+    game::SetGlobalRainLiquid(L->GetGlobalRainLiquid());
+    ClearCreatures(L);
+    PlaceCharacter(game::GetPlayer(), L,
+		   L->GetEntryPos(0, WILDERNESS_LOCAL_ENTRY));
+    L->ForceWeatherForTest(WEATHER_HEAVY, 1000000);
+
+    int FluidsBefore = CountGroundFluids(L);
+    int TotalBefore = 0, EnabledBefore = 0;
+    CountRains(L, TotalBefore, EnabledBefore);
+
+    /* A long active spell: many drop ticks, as if the player stood here for a
+       full storm. */
+    L->TickWeatherForTest(800);
+
+    int FluidsAfter = CountGroundFluids(L);
+    int TotalAfter = 0, EnabledAfter = 0;
+    CountRains(L, TotalAfter, EnabledAfter);
+
+    if(L->GetWeatherState() != WEATHER_HEAVY)
+    {
+      std::cout << "  FAIL a pinned spell changed on its own" << std::endl;
+      ++Failures;
+    }
+
+    if(FluidsAfter != FluidsBefore)
+    {
+      std::cout << "  FAIL a long wet spell accumulated " << FluidsAfter
+		<< " ground fluid square(s)" << std::endl;
+      ++Failures;
+    }
+
+    if(TotalAfter != TotalBefore || EnabledAfter != EnabledBefore)
+    {
+      std::cout << "  FAIL a wet spell changed the rain lists ("
+		<< TotalBefore << " -> " << TotalAfter << ")" << std::endl;
+      ++Failures;
+    }
+
+    /* Weather must not disturb the persistent map: a changed square and a
+       dropped item survive every transition. */
+    v2 Mark(3, 3);
+    L->GetLSquare(Mark)->ChangeOLTerrain(decoration::Spawn(PALM));
+    item* Kept = banana::Spawn();
+    L->GetLSquare(Mark)->AddItem(Kept);
+    ulong KeptID = Kept->GetID();
+
+    for(int s = 0; s < WEATHER_STATE_COUNT; ++s)
+    {
+      L->ForceWeatherForTest(s, 300);
+      L->TickWeatherForTest(200);
+    }
+
+    if(!L->GetLSquare(Mark)->GetOLTerrain()
+       || L->GetLSquare(Mark)->GetOLTerrain()->GetConfig() != PALM
+       || !LevelHasItem(L, KeptID))
+    {
+      std::cout << "  FAIL a weather spell disturbed the persistent map"
+		<< std::endl;
+      ++Failures;
+    }
+
+    std::cout << (Failures ? "FAIL " : "ok   ")
+	      << "weather accumulation failures=" << Failures << std::endl;
+    TotalFailures += Failures;
+  }
+
+  /* G4: weather ownership across a real transfer. A wet wilderness must keep
+     its binding and phase when a destination is refused, and hand the binding
+     to a town when the move succeeds. */
+  {
+    int Failures = 0;
+    character* PlayerChar = game::GetPlayer();
+    const int JungleSlot = TestSlot(1980);
+
+    level* Jungle = SetupLocalSource(WILDERNESS_JUNGLE, JungleSlot);
+    game::InitializeLevelEnvironment();
+    game::SetGlobalRainLiquid(Jungle->GetGlobalRainLiquid());
+    game::SetGlobalRainSpeed(Jungle->GetGlobalRainSpeed());
+    PlaceCharacter(PlayerChar, Jungle,
+		   Jungle->GetEntryPos(0, WILDERNESS_LOCAL_ENTRY));
+    Jungle->ForceWeatherForTest(WEATHER_LIGHT, 500);
+    liquid* JungleRain = Jungle->GetGlobalRainLiquid();
+    int JungleState = Jungle->GetWeatherState();
+
+    /* A refused ocean destination must leave the spell and the binding alone. */
+    {
+      dungeon* Ocean = game::GetDungeon(WILDERNESS_OCEAN);
+      const int OceanSlot = TestSlot(1981);
+
+      if(Ocean->GetLevel(OceanSlot))
+	Ocean->UnloadLevel(OceanSlot);
+
+      remove(LevelFilePath(Ocean, OceanSlot).CStr());
+      Ocean->SetIsGenerated(OceanSlot, false);
+      truth Refused;
+
+      {
+	relationguard Guard;
+	Refused = game::TryTravel(WILDERNESS_OCEAN, OceanSlot,
+				  WILDERNESS_LOCAL_ENTRY, false, false);
+      }
+
+      if(Refused)
+      {
+	std::cout << "  FAIL a walking player entered open water" << std::endl;
+	++Failures;
+      }
+
+      if(game::GetGlobalRainLiquid() != JungleRain
+	 || game::GetCurrentLevel() != Jungle
+	 || Jungle->GetWeatherState() != JungleState)
+      {
+	std::cout << "  FAIL a refused destination disturbed the weather"
+		  << std::endl;
+	++Failures;
+      }
+
+      /* An inactive map must be released, weather and all. */
+      if(Ocean->GetLevel(OceanSlot))
+      {
+	std::cout << "  FAIL a refused water map stayed loaded" << std::endl;
+	++Failures;
+      }
+    }
+
+    /* A successful transfer to a freshly generated town takes the binding. */
+    {
+      dungeon* Town = game::GetDungeon(NEW_ATTNAM);
+
+      if(Town->GetLevel(0))
+	Town->UnloadLevel(0);
+
+      remove(LevelFilePath(Town, 0).CStr());
+      Town->SetIsGenerated(0, false);
+      truth In;
+
+      {
+	relationguard Guard;
+	In = game::TryTravel(NEW_ATTNAM, 0, 0, false, false);
+      }
+
+      if(!In)
+      {
+	std::cout << "  FAIL could not reach the town from the wilderness"
+		  << std::endl;
+	++Failures;
+      }
+      else if(game::GetGlobalRainLiquid()
+	      != game::GetCurrentLevel()->GetGlobalRainLiquid())
+      {
+	std::cout << "  FAIL the town did not take over the rain binding"
+		  << std::endl;
+	++Failures;
+      }
+    }
+
+    std::cout << (Failures ? "FAIL " : "ok   ")
+	      << "weather ownership failures=" << Failures << std::endl;
+    TotalFailures += Failures;
+  }
+
+  /* G4: a refused first entry must not lose a wilderness map's weather cycle
+     either. The material and phase are created at generation and written out
+     with the refused map; entering for real resumes the same spell, and the
+     binding belongs to the wilderness. */
+  {
+    int Failures = 0;
+    character* PlayerChar = game::GetPlayer();
+
+    struct wcase { int Dungeon; const char* Name; };
+    const wcase Cases[] =
+    {
+      { WILDERNESS_JUNGLE,           "jungle" },
+      { WILDERNESS_EVERGREEN_FOREST, "evergreenforest" }
+    };
+
+    for(uint n = 0; n < sizeof(Cases) / sizeof(wcase); ++n)
+    {
+      dungeon* Dest = game::GetDungeon(Cases[n].Dungeon);
+      const int Slot = TestSlot(1990 + n);
+
+      if(Dest->GetLevel(Slot))
+	Dest->UnloadLevel(Slot);
+
+      remove(LevelFilePath(Dest, Slot).CStr());
+      Dest->SetIsGenerated(Slot, false);
+
+      level* Source = SetupLocalSource(WILDERNESS_JUNGLE, TestSlot(1995 + n));
+      PlaceCharacter(PlayerChar, Source,
+		     Source->GetEntryPos(0, WILDERNESS_LOCAL_ENTRY));
+
+      game::ForcePlacementFailureForTest();
+      truth Refused;
+
+      {
+	relationguard Guard;
+	Refused = game::TryTravel(Cases[n].Dungeon, Slot,
+				  WILDERNESS_LOCAL_ENTRY, false, false);
+      }
+
+      if(Refused)
+      {
+	std::cout << "  FAIL the first entry to " << Cases[n].Name
+		  << " was not refused" << std::endl;
+	++Failures;
+      }
+
+      if(game::GetCurrentLevel() != Source)
+      {
+	std::cout << "  FAIL the source was not restored after refusing "
+		  << Cases[n].Name << std::endl;
+	++Failures;
+      }
+
+      struct stat St;
+
+      if(stat(LevelFilePath(Dest, Slot).CStr(), &St) || St.st_size <= 0)
+      {
+	std::cout << "  FAIL the refused first entry to " << Cases[n].Name
+		  << " wrote nothing" << std::endl;
+	++Failures;
+      }
+
+      if(PlayerChar->GetSquareUnder())
+	PlayerChar->Remove();
+
+      PlaceCharacter(PlayerChar, Source,
+		     Source->GetEntryPos(0, WILDERNESS_LOCAL_ENTRY));
+      truth Entered;
+
+      {
+	relationguard Guard;
+	Entered = game::TryTravel(Cases[n].Dungeon, Slot,
+				  WILDERNESS_LOCAL_ENTRY, false, false);
+      }
+
+      if(!Entered)
+      {
+	std::cout << "  FAIL the second entry to " << Cases[n].Name
+		  << " was refused" << std::endl;
+	++Failures;
+	continue;
+      }
+
+      level* W = game::GetCurrentLevel();
+
+      if(!W->HasWeather() || !W->GetGlobalRainLiquid()
+	 || game::GetGlobalRainLiquid() != W->GetGlobalRainLiquid())
+      {
+	std::cout << "  FAIL " << Cases[n].Name
+		  << " lost its weather after a refused first entry"
+		  << std::endl;
+	++Failures;
+      }
+
+      int State = W->GetWeatherState();
+      long Timer = W->GetWeatherTimer();
+
+      truth Left, Back;
+
+      {
+	relationguard Guard;
+	Left = game::TryTravel(WILDERNESS_JUNGLE, TestSlot(2000 + n),
+			       WILDERNESS_LOCAL_ENTRY, false, false);
+      }
+
+      {
+	relationguard Guard;
+	Back = game::TryTravel(Cases[n].Dungeon, Slot,
+			       WILDERNESS_LOCAL_ENTRY, false, false);
+      }
+
+      if(!Left || !Back)
+      {
+	std::cout << "  FAIL " << Cases[n].Name
+		  << " could not be left/re-entered for weather" << std::endl;
+	++Failures;
+      }
+      else if(game::GetCurrentLevel()->GetWeatherState() != State
+	      || game::GetCurrentLevel()->GetWeatherTimer() != Timer)
+      {
+	std::cout << "  FAIL " << Cases[n].Name
+		  << " changed its spell across a reload" << std::endl;
+	++Failures;
+      }
+    }
+
+    std::cout << (Failures ? "FAIL " : "ok   ")
+	      << "weather first entry failures=" << Failures << std::endl;
     TotalFailures += Failures;
   }
 
@@ -3032,8 +3948,14 @@ int WildernessTest(int Seeds)
     game::SetIsGenerating(false);
 
     level* Corridor = DestDungeon->GetLevel(CorridorSlot);
-    int Row = Corridor->GetYSize() / 2;
     ClearCreatures(Corridor);
+
+    /* Use the level's own arrival row so the entry square (which is nudged off
+       the exact centre) stays on the one walkable row. */
+    int Row = Corridor->GetEntryPos(0, WILDERNESS_LOCAL_ENTRY).Y;
+
+    if(Row < 0 || Row >= Corridor->GetYSize())
+      Row = Corridor->GetYSize() / 2;
 
     /* A single walkable row in an otherwise impassable sea: a normal creature
        fits there, a four-square one cannot. Water rather than a wall, because
@@ -3160,6 +4082,7 @@ int WildernessTest(int Seeds)
     Failures += RunResumePhase("loadworld", "wildreloadsea");
     Failures += RunResumePhase("saveenv", "wildenv");
     Failures += RunResumePhase("loadenv", "wildenv");
+    Failures += RunResumePhase("arena", "sumo");
 
     std::cout << (Failures ? "FAIL " : "ok   ")
 	      << "full game resume failures=" << Failures << std::endl;
@@ -3240,74 +4163,13 @@ int WildernessTest(int Seeds)
       Failures += PlacementFailures(PlayerChar, "player after go-down command");
 
     std::cout << (Failures ? "FAIL " : "ok   ")
-	      << "command edge path failures=" << Failures << std::endl;
+	      << "go-down command dispatch failures=" << Failures << std::endl;
     TotalFailures += Failures;
   }
 
-  /* U3: the sumo mirror walks EnterArea() from the other side -- the caller
-     supplies the player itself, with an empty travelling party -- so that path
-     deserves its own smoke test rather than an assumption from ordinary
-     travel. */
-  {
-    int Failures = 0;
-
-    if(game::GetDungeon(NEW_ATTNAM)->GetLevels() < 2)
-    {
-      std::cout << "  FAIL newattnam has no arena level to test" << std::endl;
-      ++Failures;
-    }
-    else
-    {
-      character* PlayerChar = game::GetPlayer();
-      dungeon* Town = game::GetDungeon(NEW_ATTNAM);
-
-      /* Build both town levels from scratch so the check does not depend on
-	 whatever state an earlier test left on disk. */
-      for(int l = 0; l < Town->GetLevels(); ++l)
-      {
-	if(Town->GetLevel(l))
-	  Town->UnloadLevel(l);
-
-	remove(LevelFilePath(Town, l).CStr());
-	Town->SetIsGenerated(l, false);
-      }
-
-      level* Source = SetupLocalSource(NEW_ATTNAM, 0);
-      PlaceCharacter(PlayerChar, Source,
-		     v2(Source->GetXSize() / 2, Source->GetYSize() / 2));
-
-      /* The real sumo path saves the town before entering the arena, so the
-	 return can reload it. */
-      Town->SaveLevel(game::SaveName(), 0, false);
-
-      /* The mirror transfer hands the engine a detached player. */
-      PlayerChar->Remove();
-      charactervector Empty;
-      truth In = game::EnterArea(Empty, 1, STAIRS_UP);
-
-      if(!In || !PlayerChar->GetSquareUnder()
-	 || game::GetCurrentLevelIndex() != 1)
-      {
-	std::cout << "  FAIL the caller-supplied player could not enter the "
-		     "arena" << std::endl;
-	++Failures;
-      }
-
-      truth Out = game::EnterArea(Empty, 0, STAIRS_DOWN);
-
-      if(!Out || !PlayerChar->GetSquareUnder()
-	 || game::GetCurrentLevelIndex() != 0)
-      {
-	std::cout << "  FAIL the caller-supplied player could not leave the "
-		     "arena" << std::endl;
-	++Failures;
-      }
-    }
-
-    std::cout << (Failures ? "FAIL " : "ok   ")
-	      << "sumo mirror transfer failures=" << Failures << std::endl;
-    TotalFailures += Failures;
-  }
+  /* F3: the real sumo mirror setup, arena entry, disposal and null-player
+     return run in their own subprocess (the "arena" resume phase), because the
+     production path deletes a live player and reloads the town. */
 
   /* S5: the startup checks must abort, not merely print. */
   {

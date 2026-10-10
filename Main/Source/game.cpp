@@ -51,8 +51,8 @@
 #include "balance.h"
 #include "confdef.h"
 
-#define SAVE_FILE_VERSION 120 // Increment this if changes make savefiles incompatible
-#define BONE_FILE_VERSION 106 // Increment this if changes make bonefiles incompatible
+#define SAVE_FILE_VERSION 121 // Increment this if changes make savefiles incompatible
+#define BONE_FILE_VERSION 107 // Increment this if changes make bonefiles incompatible
 
 #define LOADED 0
 #define NEW_GAME 1
@@ -578,6 +578,11 @@ void game::Run()
 	  Char->PutTo(CurrentLevel->GetRandomSquare(Char));
 	  }*/
       }
+
+      /* A wilderness map advances its own weather clock; the named towns keep
+	 the scripted cycle above, and the world map has no level of its own. */
+      if(CurrentLevel && CurrentLevel->HasWeather())
+	CurrentLevel->UpdateWeather();
     }
 
     try
@@ -2137,6 +2142,13 @@ void game::InitializeLevelEnvironment()
     CurrentLevel->CreateGlobalRain(Blood, v2(256, 512));
     CurrentLevel->EnableGlobalRain();
   }
+
+  /* An enterable wilderness tile owns its own biome weather cycle instead of a
+     fixed scripted one. The material and the dormant phase are created here,
+     at generation, so a refused first entry is written out with them and the
+     spell can start the moment somebody actually stands on the map. */
+  if(IsWildernessDungeon(CurrentDungeonIndex))
+    CurrentLevel->InitializeWeather();
 }
 
 /* Used always when the player enters an area. Returns false only when the
@@ -2223,6 +2235,12 @@ truth game::EnterArea(charactervector& Group, int Area, int EntryIndex,
        never be mistaken for a reason to unbind the destination. */
     SetGlobalRainLiquid(CurrentLevel->GetGlobalRainLiquid());
     SetGlobalRainSpeed(CurrentLevel->GetGlobalRainSpeed());
+
+    /* A wilderness map resumes the exact spell it was in (its own serialized
+       phase), which also re-applies the intensity and wind to the drops that
+       were just created from the level file. A named location has no weather
+       cycle and is left to its scripted rain above. */
+    CurrentLevel->ApplyWeatherState();
 
     /* Destination accepted: only now does the source get committed. */
     CommitTravelSource(Source);

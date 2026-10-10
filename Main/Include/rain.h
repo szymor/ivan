@@ -31,6 +31,12 @@ class rain : public entity
   void Draw(blitdata&) const;
   truth HasOwnLiquid() const { return OwnLiquid; }
   void RandomizeDropPos(int) const;
+  /* Re-aims the drops and recomputes the cached speed magnitude, which
+     RandomizeDropPos() and Be() divide by. */
+  void SetSpeed(v2 What) { Speed = What; SpeedAbs = long(sqrt(What.GetLengthSquare())); }
+#ifdef WILDERNESS_TEST_HARNESS
+  v2 GetSpeedForTest() const { return Speed; }
+#endif
   liquid* GetLiquid() const { return Liquid; }
   virtual square* GetSquareUnderEntity(int = 0) const { return LSquareUnder; }
   square* GetSquareUnder() const { return LSquareUnder; }

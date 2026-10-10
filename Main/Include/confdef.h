@@ -83,6 +83,7 @@
 #define JASPER (SOLID_ID + 62)
 #define ROCK_CRYSTAL (SOLID_ID + 63)
 #define DARK_GRASS (SOLID_ID + 64)
+#define HUMUS (SOLID_ID + 65)
 
 #define ORGANIC_ID (2 << 12)
 
@@ -369,6 +370,9 @@
 #define SNOW_TERRAIN 6
 #define DARK_GRASS_TERRAIN 7
 #define SAND_TERRAIN 8
+/* Wilderness-local ground variants: forest litter and exposed glacier ice. */
+#define FOREST_FLOOR 9
+#define GLACIER_ICE 10
 
 #define POOL 1
 #define UNDERGROUND_LAKE 2
@@ -399,6 +403,9 @@
 #define BIRCH 16
 #define TEAK 17
 #define DWARF_BIRCH 18
+/* Jungle-local canopy/understory: opaque foliage and impassable thicket. */
+#define JUNGLE_CANOPY 19
+#define JUNGLE_THICKET 20
 
 #define SNOW_BOULDER 4
 

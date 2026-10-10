@@ -119,6 +119,12 @@ void rain::RandomizeDropPos(int I) const
 
 void rain::Be()
 {
+  /* Wilderness weather is deliberately visual: it never spills standing liquid,
+     so a long spell cannot flood the map or bury dropped items. Scripted
+     named-location rain and every own-liquid drop keep their old behaviour. */
+  if(!OwnLiquid && LSquareUnder && LSquareUnder->GetLevel()->IsWeatherVisualOnly())
+    return;
+
   if(++BeCounter < 50)
     return;
 

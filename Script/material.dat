@@ -1008,6 +1008,22 @@ solid
     BodyFlags = Base|CAN_REGENERATE|IS_ALIVE;
     InteractionFlags = CAN_BURN;
   }
+
+  /* Forest litter: the leaf/needle layer under closed stands, browner and
+     less grassy than the open ground it replaces. */
+  Config HUMUS;
+  {
+    StrengthValue = 1;
+    ConsumeType = CT_MISC_ORGANIC;
+    Density = 300;
+    Color = rgb16(84, 58, 32);
+    NameStem = "humus";
+    AdjectiveStem = "leaf-strewn";
+    Flexibility = 10;
+    AttachedGod = SILVA;
+    CommonFlags = Base&~CAN_BE_WISHED;
+    InteractionFlags = CAN_BURN;
+  }
 }
 
 organic /* substances that spoil but are not flesh */

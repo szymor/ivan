@@ -229,6 +229,23 @@ class lsquare : public square
   const emittervector& GetEmitter() const { return Emitter; }
   void EnableGlobalRain();
   void DisableGlobalRain();
+  /* Re-aim the global-rain drops that sit on this square after a weather
+     change; own-liquid rain keeps its own speed. */
+  void SetGlobalRainSpeed(v2);
+#ifdef WILDERNESS_TEST_HARNESS
+  /* Ground fluid and rain-list inspection for the weather checks: weather must
+     not accumulate standing liquid, and repeated state changes must not grow
+     the per-square rain lists. */
+  truth HasGroundFluidForTest() const { return Fluid != 0; }
+  void CountRainsForTest(int& Total, int& Enabled) const;
+  /* Steps every enabled global-rain drop on this square the way the pool would,
+     without walking the rest of the entity pool. */
+  void TickRainsForTest(int Times);
+  /* True when every enabled global-rain drop here already carries the given
+     speed, used to prove a weather change re-aims the existing drops and not
+     just the game binding. */
+  truth GlobalRainsHaveSpeedForTest(v2) const;
+#endif
   void Freeze() { Flags |= FREEZED; }
   void UnFreeze() { Flags &= ~FREEZED; }
   void InitLastSeen();

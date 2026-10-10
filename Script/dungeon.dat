@@ -3096,7 +3096,7 @@ Dungeon WILDERNESS_EVERGREEN_FOREST;
 {
   Levels = 16385;
   Description = "evergreen forest";
-  ShortDescription = "Pine wood";
+  ShortDescription = "Evergreen";
 
   LevelDefault
   {
@@ -3125,7 +3125,7 @@ Dungeon WILDERNESS_EVERGREEN_FOREST;
     FillSquare = solidterrain(GRASS_TERRAIN), 0;
     Type = EVERGREEN_FOREST;
     Description = "evergreen forest";
-    ShortDescription = "Pine wood";
+    ShortDescription = "Evergreen";
     BackGroundType = GREEN_FRACTAL;
   }
 }

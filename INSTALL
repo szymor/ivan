@@ -71,11 +71,12 @@ biome for that many deterministic seeds in one process and checks:
    refused before a map is built; no original destination is claimed by
    a wilderness container and every other scripted destination still
    resolves;
- - per biome, per seed: the arrival square is the centre and is walkable
-   (except on water), a walkable flood fill from it reaches the map
-   edge, and a four-square-wide route (the same footprint-aware movement
-   a large follower uses, not a literal straight band) reaches all four
-   edges;
+ - per biome, per seed: the arrival square is near the centre (a free
+   naturalized dell rather than the exact centre, so maps do not all open
+   on the same carved square) and is walkable (except on water), a
+   walkable flood fill from it reaches the map edge, and a four-square
+   wide route (the same footprint-aware movement a large follower uses,
+   not a literal straight band) reaches all four edges;
  - every creature standing on the map matches that biome's whitelist,
    resolved from the character's own configuration (class name plus
    adjective) rather than from a script array position, and every
@@ -89,8 +90,34 @@ biome for that many deterministic seeds in one process and checks:
    rather than collapse back to a few isolated groves, as a connected
    forest matrix also keeps a good fraction of the map in or next to
    vegetation;
+ - structure, not just counts: a jungle must carry real opaque foliage
+   (line-of-sight cover) rather than only transparent palms, its
+   impassable thickets must actually block walking while still letting
+   flight and ethereal movement through and must stay choppable, and a
+   glacier must have a substantial exposed-ice floor rather than reading
+   as snow broken by wall islands; the run also prints per-seed ranges
+   for decoration coverage, near-vegetation fraction, opaque fraction,
+   the largest single open region and exposed-ice ground;
+ - the wilderness-local terrain palette is additive: a forest-litter
+   ground, an exposed glacier-ice ground, an opaque jungle canopy and an
+   impassable jungle thicket are new script configurations and do not
+   alter the town or world-map assets;
  - the desert oasis, searched for separately across up to 64 seeds so
    that a single-seed run still covers it;
+ - wilderness weather: every biome owns a level-local cycle of clear and
+   precipitation spells; the precipitation type matches the climate
+   (rain or snow), clear hides the drops and each wet state shows and
+   enables them at the intensity the biome's own profile specifies, the
+   wind is never a zero vector, every drawn spell length lies inside the
+   biome's duration bounds, and a long active spell spills no standing
+   liquid and does not grow the per-square rain lists or disturb a
+   changed square or a dropped item; a wet wilderness keeps its spell
+   and binding when a destination is refused and hands the binding to a
+   town on a successful move; a refused first entry keeps the map's
+   weather, which resumes unchanged after leaving and re-entering; and
+   the complete-game resume checks that a pinned mid-spell phase comes
+   back exactly (a separate in-process check forces each state and each
+   transition for every biome);
  - a save/load round trip of a level file: the serialized statistics
    come back exactly as written, the enchantment chances that
    level::Save() omits are re-derived from the script (checked on both a
@@ -108,7 +135,17 @@ biome for that many deterministic seeds in one process and checks:
    and nothing enabled off the active area, an entity pool tick is safe,
    and leaving and re-entering the saved area brings back the same
    population; a save made while standing on the world map reloads
-   through the .wm file the same way;
+   through the .wm file the same way; and the real sumo mirror lifecycle
+   (mirror the player and the town's own sumo, write the town with the
+   default deleting save so the originals are released, enter the arena,
+   destroy the mirrors, set the player to null and let EnterArea()
+   recover the original from the reloaded town) runs in its own process:
+   it checks that the town and the arena really unload, that no enabled
+   creature is left off the active area during the bout or after the
+   return, that an ordinary entity pool tick is safe with the mirrors up,
+   that the recovered player has the original's id and money, that there
+   are no duplicate ids, and that the arena's item and companion come
+   back;
  - a refused first entry does not cost a map its one-time environment:
    each named destination (Attnam, New Attnam and the lair) is generated
    and refused before anybody can stand on it, then entered for real;
@@ -123,10 +160,9 @@ biome for that many deterministic seeds in one process and checks:
    footprint; a fully obstructed arrival square either finds another
    place to stand or refuses with the source untouched; an original
    dungeon and an original town transfer go through the same code path
-   with the same placement checks; the `>` command itself (not merely
-   the API it calls) enters a walkable biome tile and refuses an ocean
-   one; and the sumo mirror's caller-supplied-player transfer works in
-   both directions;
+   with the same placement checks; and the `>` command itself (not
+   merely the API it calls) enters a walkable biome tile and refuses an
+   ocean one;
  - a multi-square follower: one that fits nowhere in a one-square-wide
    destination refuses the transfer, while a single-square one is
    accepted, so the whole footprint and not just the anchor square is
@@ -186,8 +222,11 @@ Not covered: the interactive menu layer -- picking an option from a
 list, and cancelling the "do you want to leave?" prompt that the real
 edge walk asks before it travels (the `>` command itself is driven
 directly, and the world return uses the same production expression the
-edge walk in char.cpp builds). Save cleanup is checked against isolated
-files rather than through a full death-and-restart of a real character.
+edge walk in char.cpp builds). The sumo lifecycle is driven through the
+production calls, but the interactive challenge and "give up?"
+questions are not; cancellation is the one part of that path left
+uncovered. Save cleanup is checked against isolated files rather than
+through a full death-and-restart of a real character.
 Bones never apply, because wilderness profiles do not enable them. Most
 travel tests neutralise the player/monster team relation so that
 placement and not line of sight decides the outcome; the "you can't
@@ -206,14 +245,34 @@ internal entry points used by the run above to exercise the abort and
 save/resume cases in child processes; they are not meant to be called
 directly.
 
-Save compatibility: this change bumps SAVE_FILE_VERSION to 120 and
-BONE_FILE_VERSION to 106. Level files gained one serialized field
-(`level::FirstEntryInitDone`) and the world-map return entries are
-carried once by the base area serialization. The version gate rejects a
-mismatched .sav, an incompatible bone file is discarded and regenerated,
-and a development build from before this change has to start a new game.
-The version gate is not a comprehensive integrity check for the
-subordinate level files.
+Save compatibility: this change bumps SAVE_FILE_VERSION to 121 and
+BONE_FILE_VERSION to 107. Level files gained `level::FirstEntryInitDone`
+and then the three wilderness-weather fields (`WeatherState`,
+`WeatherTimer`, `WeatherRandomState`), and the world-map return entries
+are carried once by the base area serialization. The new terrain
+configurations (forest litter, exposed glacier ice, jungle canopy and
+thicket) are additive script ids, so no further layout change is needed,
+but a map written with them cannot be read by an engine built before
+they exist. The version gate rejects a mismatched .sav, an incompatible
+bone file is discarded and regenerated, and a development build from
+before this change has to start a new game. The version gate is not a
+comprehensive integrity check for the subordinate level files.
+
+A note on the wilderness weather: it is deliberately visual. The active
+map owns a serialized clear/light/heavy phase and a precipitation
+material created at generation (dormant until the map is entered). The
+state advances on the game clock, not on every step, and a loaded map
+re-evaluates its stored phase on arrival rather than simulating skipped
+rain, so a leave-and-return resumes the same spell. Wilderness rain and
+snow never spill standing liquid and never touch terrain, which keeps a
+long spell from flooding a map or burying items; the named locations
+keep their original scripted rain, which does spill. Weather is keyed by
+biome alone for now, with a per-tile variation seed; matching shore,
+forest edges, snow exposure and outcrops to the neighbouring world tiles,
+and a real height/moisture model for water placement, are later
+improvements. The new recolored ground and foliage have only numerical
+and structural checks here: a rendered look is still needed to judge how
+readable the sprites are.
 
 A note on configuration ids: a script entry's `Config <number>` is an
 explicit id read from the file (Script/char.dat and friends) and copied

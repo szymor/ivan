@@ -391,6 +391,44 @@ decoration
     BitmapPos = 32, 368;
     HPModifier = 10;
   }
+
+  /* Jungle-local understory: opaque foliage that blocks line of sight while
+     staying walkable at ground level. Deliberately separate from PALM/TEAK so
+     the tropical palette and New Attnam's palm trees are not altered globally. */
+  Config JUNGLE_CANOPY;
+  {
+    OKVisualEffects = MIRROR;
+    CanBeDestroyed = true;
+    DigMessage = "You hack through the dense foliage.";
+    MainMaterialConfig == BALSA_WOOD;
+    ShowMaterial = false;
+    MaterialColorB = rgb16(24, 70, 24);
+    NameSingular = "dense foliage";
+    BitmapPos = 16, 368;
+    HPModifier = 30;
+    IsAlwaysTransparent = false;
+  }
+
+  /* Dense thicket roots and brush: opaque and impassable to walking, so a
+     jungle stand offers the player both concealment and movement resistance.
+     It is brush rather than masonry, so flight passes over it and ethereal
+     movement passes through it, matching how walls treat ethereal movement; it
+     stays destructible like any tree. Routes and the arrival clearing are
+     still carved around it. */
+  Config JUNGLE_THICKET;
+  {
+    OKVisualEffects = MIRROR;
+    CanBeDestroyed = true;
+    DigMessage = "You cut a way through the thicket.";
+    MainMaterialConfig == TEAK_WOOD;
+    ShowMaterial = false;
+    MaterialColorB = rgb16(16, 52, 16);
+    NameSingular = "impenetrable thicket";
+    BitmapPos = 32, 336;
+    HPModifier = 40;
+    IsAlwaysTransparent = false;
+    Walkability = FLY|ETHEREAL;
+  }
 }
 
 door /* olterrain-> */

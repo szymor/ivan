@@ -510,6 +510,15 @@ const v2 SILHOUETTE_SIZE(48, 64);
 #define WILDERNESS_DUNGEON_FIRST WILDERNESS_JUNGLE
 #define WILDERNESS_DUNGEON_LAST WILDERNESS_OCEAN
 
+/* Wilderness weather spell states. Clear is dry; the two precipitation states
+   differ only in intensity, never in type, because a biome precipitates either
+   rain or snow but not both. Times are kept in game ticks. */
+
+#define WEATHER_CLEAR 0
+#define WEATHER_LIGHT 1
+#define WEATHER_HEAVY 2
+#define WEATHER_STATE_COUNT 3
+
 /* Entrance keys into a local level and back into the world map. The return
    key is derived from the world tile and starts above every named world
    entry (ATTNAM=2 .. UNDER_WATER_TUNNEL_EXIT=128), so 256 is safe. */

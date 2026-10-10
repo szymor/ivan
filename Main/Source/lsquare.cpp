@@ -2484,6 +2484,46 @@ void lsquare::DisableGlobalRain()
     }
 }
 
+void lsquare::SetGlobalRainSpeed(v2 Speed)
+{
+  for(rain* R = Rain; R; R = R->Next)
+    if(!R->HasOwnLiquid())
+      R->SetSpeed(Speed);
+}
+
+#ifdef WILDERNESS_TEST_HARNESS
+void lsquare::CountRainsForTest(int& Total, int& Enabled) const
+{
+  Total = 0;
+  Enabled = 0;
+
+  for(rain* R = Rain; R; R = R->Next)
+  {
+    ++Total;
+
+    if(!R->HasOwnLiquid() && R->IsEnabled())
+      ++Enabled;
+  }
+}
+
+void lsquare::TickRainsForTest(int Times)
+{
+  for(int t = 0; t < Times; ++t)
+    for(rain* R = Rain; R; R = R->Next)
+      if(R->IsEnabled())
+	R->Be();
+}
+
+truth lsquare::GlobalRainsHaveSpeedForTest(v2 Speed) const
+{
+  for(rain* R = Rain; R; R = R->Next)
+    if(!R->HasOwnLiquid() && R->IsEnabled() && R->GetSpeedForTest() != Speed)
+      return false;
+
+  return true;
+}
+#endif
+
 void lsquare::InitLastSeen()
 {
   LastSeen = LastSeen == game::GetLOSTick() ? 2 : 0;

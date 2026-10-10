@@ -19,7 +19,11 @@
 #define ICE_TERRAIN 16
 #define STONE_TERRAIN 32
 
-level::level() : Room(1, static_cast<room*>(0)), GlobalRainLiquid(0), SunLightEmitation(0), AmbientLuminance(0), SquareStack(0), NightAmbientLuminance(0), EnchantmentMinusChance(0), EnchantmentPlusChance(0), FirstEntryInitDone(false) { }
+level::level() : Room(1, static_cast<room*>(0)), GlobalRainLiquid(0), SunLightEmitation(0), AmbientLuminance(0), SquareStack(0), NightAmbientLuminance(0), EnchantmentMinusChance(0), EnchantmentPlusChance(0), FirstEntryInitDone(false), WeatherEnabled(false), WeatherState(WEATHER_CLEAR), WeatherTimer(0), WeatherRandomState(0) { }
+
+/* Defined with the wilderness weather code further down; the level generator
+   and the load path both need it before then. */
+truth IsWeatherBiome(int);
 void level::SetRoom(int I, room* What) { Room[I] = What; }
 void level::AddToAttachQueue(v2 Pos) { AttachQueue.push_back(Pos); }
 
@@ -668,6 +672,7 @@ void level::Save(outputfile& SaveFile) const
   SaveFile << Door << LevelMessage << IdealPopulation << MonsterGenerationInterval << Difficulty;
   SaveFile << SunLightEmitation << SunLightDirection << AmbientLuminance << NightAmbientLuminance;
   SaveFile << FirstEntryInitDone;
+  SaveFile << WeatherState << WeatherTimer << WeatherRandomState;
 }
 
 void level::Load(inputfile& SaveFile)
@@ -702,6 +707,7 @@ void level::Load(inputfile& SaveFile)
   SaveFile >> Door >> LevelMessage >> IdealPopulation >> MonsterGenerationInterval >> Difficulty;
   SaveFile >> SunLightEmitation >> SunLightDirection >> AmbientLuminance >> NightAmbientLuminance;
   SaveFile >> FirstEntryInitDone;
+  SaveFile >> WeatherState >> WeatherTimer >> WeatherRandomState;
   Alloc2D(NodeMap, XSize, YSize);
   Alloc2D(WalkabilityMap, XSize, YSize);
 
@@ -1979,36 +1985,233 @@ void WildernessPlaceWater(lsquare*** Map, v2 Center, int Radius, int Config,
     }
 }
 
+/* A small symmetric per-map variation on a scalar parameter, so neighbouring
+   local areas of one biome do not all come out equally dense. */
+double WildernessJitter(double HalfRange)
+{
+  return double(int(RAND() % 2001) - 1000) / 1000.0 * HalfRange;
+}
+
+/* Jitters the three octave scales a little so stand size varies between maps
+   without letting any octave collapse to noise. */
+void WildernessJitterCells(const int* Base, int* Out)
+{
+  for(int o = 0; o < 3; ++o)
+    Out[o] = Max(2, Base[o] + int(RAND_N(3)) - 1);
+}
+
+/* Per-biome ecology parameters in one place. The generator samples a small
+   per-map variant of the scalar values, so stand density, patch scale, species
+   mix and ground/rock/water/snow tendencies are tuned together and can be
+   checked by the diagnostic rather than scattered through the generators. */
+struct wildernessbiome
+{
+  double TreeCoverage;      /* target fraction of the map carrying decoration */
+  double CoverageJitter;    /* per-map uniform half-range on TreeCoverage */
+  int Cells[3];             /* stand / structure / edge octave scales */
+  int PrimarySpecies;       /* species where the species field is high */
+  int SecondarySpecies;     /* species where it is low */
+  int CanopySpecies;        /* opaque canopy config, 0 for none */
+  int ThicketSpecies;       /* impassable thicket config, 0 for none */
+  int CanopyPercent;        /* share of vegetation that becomes opaque canopy */
+  int ThicketPercent;       /* share that becomes impassable thicket */
+  int RockChance;           /* 1/N of vegetation cells become boulders */
+  int OutcropPermille;      /* off-stand correlated rock coverage, per mille */
+  int OutcropJitter;        /* per-map variation in the outcrop coverage */
+  int GroundConfig;         /* base ground */
+  int RichGroundConfig;     /* stand / exposed ground, 0 for none */
+  int RichGroundPercent;    /* coverage of the rich or exposed ground */
+  int SnowConfig;           /* snow field ground, 0 for none */
+  int SnowPercent;          /* snow coverage; placed only in the clearings */
+  int WaterArea;            /* squares per coherent wet feature, 0 for none */
+  int WaterChance;          /* percent chance of placing each wet feature */
+  int WaterMaxRadius;
+  int WallPermille;         /* glacier ice-mass coverage, per mille */
+  int FractureArea;         /* squares per raised fracture line, 0 for none */
+  int Boulder;              /* 0: random rock; otherwise an explicit config */
+};
+
+wildernessbiome WildernessBiomeForType(int Type)
+{
+  wildernessbiome P = {};
+  P.Cells[0] = 12;
+  P.Cells[1] = 6;
+  P.Cells[2] = 3;
+  P.RockChance = 10;
+  P.GroundConfig = GRASS_TERRAIN;
+  P.WaterMaxRadius = 3;
+
+  switch(Type)
+  {
+   case JUNGLE:
+     P.TreeCoverage = 0.25;
+     P.CoverageJitter = 0.04;
+     P.Cells[0] = 11; P.Cells[1] = 6; P.Cells[2] = 3;
+     P.PrimarySpecies = PALM;
+     P.SecondarySpecies = TEAK;
+     P.CanopySpecies = JUNGLE_CANOPY;
+     P.CanopyPercent = 45;
+     P.ThicketSpecies = JUNGLE_THICKET;
+     P.ThicketPercent = 5;
+     P.RockChance = 12;
+     P.RichGroundConfig = FOREST_FLOOR;
+     P.RichGroundPercent = 10;
+     P.WaterArea = 1600;
+     P.WaterChance = 55;
+     P.WaterMaxRadius = 4;
+     break;
+
+   case LEAFY_FOREST:
+     P.TreeCoverage = 0.20;
+     P.CoverageJitter = 0.03;
+     P.Cells[0] = 11; P.Cells[1] = 6; P.Cells[2] = 3;
+     P.PrimarySpecies = OAK;
+     P.SecondarySpecies = BIRCH;
+     P.RockChance = 10;
+     P.RichGroundConfig = FOREST_FLOOR;
+     P.RichGroundPercent = 14;
+     P.WaterArea = 4000;
+     P.WaterChance = 25;
+     break;
+
+   case EVERGREEN_FOREST:
+     P.TreeCoverage = 0.22;
+     P.CoverageJitter = 0.03;
+     P.Cells[0] = 10; P.Cells[1] = 5; P.Cells[2] = 3;
+     P.PrimarySpecies = PINE;
+     P.SecondarySpecies = FIR;
+     P.RockChance = 9;
+     P.RichGroundConfig = FOREST_FLOOR;
+     P.RichGroundPercent = 16;
+     P.SnowConfig = SNOW_TERRAIN;
+     P.SnowPercent = 42;
+     P.WaterArea = 4000;
+     P.WaterChance = 15;
+     break;
+
+   case STEPPE:
+     P.TreeCoverage = 0.005;
+     P.CoverageJitter = 0.002;
+     P.Cells[0] = 18; P.Cells[1] = 9; P.Cells[2] = 4;
+     P.PrimarySpecies = OAK;
+     P.SecondarySpecies = BIRCH;
+     P.OutcropPermille = 30;
+     P.OutcropJitter = 18;
+     P.RichGroundConfig = DARK_GRASS_TERRAIN;
+     P.RichGroundPercent = 28;
+     break;
+
+   case DESERT:
+     P.Cells[0] = 16; P.Cells[1] = 8; P.Cells[2] = 4;
+     P.OutcropPermille = 30;
+     P.OutcropJitter = 18;
+     P.GroundConfig = SAND_TERRAIN;
+     break;
+
+   case TUNDRA:
+     P.TreeCoverage = 0.006;
+     P.CoverageJitter = 0.003;
+     P.Cells[0] = 16; P.Cells[1] = 8; P.Cells[2] = 4;
+     P.PrimarySpecies = DWARF_BIRCH;
+     P.SecondarySpecies = DWARF_BIRCH;
+     P.OutcropPermille = 40;
+     P.OutcropJitter = 25;
+     P.GroundConfig = SNOW_TERRAIN;
+     P.RichGroundConfig = GRASS_TERRAIN;
+     P.RichGroundPercent = 25;
+     P.Boulder = SNOW_BOULDER;
+     break;
+
+   case GLACIER:
+     P.Cells[0] = 20; P.Cells[1] = 10; P.Cells[2] = 5;
+     P.GroundConfig = SNOW_TERRAIN;
+     P.RichGroundConfig = GLACIER_ICE;
+     P.RichGroundPercent = 34;
+     P.WallPermille = 220;
+     P.FractureArea = 1500;
+     P.OutcropPermille = 25;
+     P.OutcropJitter = 15;
+     P.Boulder = SNOW_BOULDER;
+     break;
+
+   case OCEAN_LEVEL:
+     break;
+  }
+
+  return P;
+}
+
+/* Occasional coherent wet features. The passed field is canopy density, not a
+   height map, so this is a deliberate heuristic: sampling several candidates
+   and keeping the lowest-valued one places water toward the open clearings the
+   canopy leaves. It does not prove a geographic depression, and a real
+   height/moisture model would be the way to get that. Not every map need show
+   open water; a damp climate can be carried by the ground palette alone. */
+void WildernessPlaceWetFeatures(const wildernessbiome& P,
+				const wildernessterrainnoise& Field,
+				int XSize, int YSize, lsquare*** Map)
+{
+  if(P.WaterArea <= 0 || P.WaterChance <= 0)
+    return;
+
+  int Features = Max(1, XSize * YSize / P.WaterArea);
+
+  for(int c = 0; c < Features; ++c)
+  {
+    if(int(RAND() % 100) >= P.WaterChance)
+      continue;
+
+    v2 Center(0, 0);
+    double Best = 2.0;
+
+    for(int Trial = 0; Trial < 4; ++Trial)
+    {
+      v2 Candidate(4 + RAND_N(Max(1, XSize - 8)),
+		   4 + RAND_N(Max(1, YSize - 8)));
+      double Value = Field.At(Candidate.X, Candidate.Y);
+
+      if(Value < Best)
+      {
+	Best = Value;
+	Center = Candidate;
+      }
+    }
+
+    WildernessPlaceWater(Map, Center, 1 + RAND_N(P.WaterMaxRadius), POOL,
+			 XSize, YSize);
+  }
+}
+
 void level::GenerateJungle()
 {
   int x, y;
+  const wildernessbiome P = WildernessBiomeForType(JUNGLE);
+  int Cells[3];
+  WildernessJitterCells(P.Cells, Cells);
 
-  /* A broad, correlated canopy rather than fourteen palm discs: the noise
-     field is thresholded at a percentile so the target coverage is met on
-     every seed, while the stands stay large, uneven and ragged-edged. */
-  const int Cells[3] = { 11, 6, 3 };
+  /* A broad, correlated canopy thresholded at a per-map percentile, so the
+     target coverage is met while stands stay large, uneven and ragged-edged.
+     Part of the vegetation becomes opaque canopy and a little becomes
+     impassable thicket, so a jungle stand conceals and resists as well as
+     looks dense. */
   wildernessterrainnoise Canopy, Species;
   Canopy.Init(XSize, YSize, Cells);
   Species.Init(XSize, YSize, Cells);
-  double Threshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.26);
-  double DarkThreshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.38);
+  double Coverage = P.TreeCoverage + WildernessJitter(P.CoverageJitter);
+  double Threshold = WildernessCoverageThreshold(Canopy, XSize, YSize, Coverage);
+  double RichThreshold = WildernessCoverageThreshold(
+    Canopy, XSize, YSize, Coverage + P.RichGroundPercent / 100.0);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
-      /* Dark, damp ground follows the canopy instead of per-cell speckling,
-	 so thickets read as thickets. */
+      /* Damp ground follows the canopy instead of per-cell speckling, so
+	 thickets read as thickets. */
       Map[x][y]->SetLTerrain(solidterrain::Spawn(
-	Canopy.At(x, y) >= DarkThreshold ? DARK_GRASS_TERRAIN : GRASS_TERRAIN), 0);
+	Canopy.At(x, y) >= RichThreshold ? P.RichGroundConfig : P.GroundConfig), 0);
 
-  /* One or two coherent pools or wet depressions, not three lone dots. The
-     count scales with the map area rather than being fixed. */
-  int Pools = Max(1, XSize * YSize / 2500) + RAND_N(2);
-
-  for(int c = 0; c < Pools; ++c)
-  {
-    v2 Center(4 + RAND_N(Max(1, XSize - 8)), 4 + RAND_N(Max(1, YSize - 8)));
-    WildernessPlaceWater(Map, Center, 2 + RAND_N(3), POOL, XSize, YSize);
-  }
+  /* Wet depressions, biased toward low ground rather than demanded on every
+     tile. */
+  WildernessPlaceWetFeatures(P, Canopy, XSize, YSize, Map);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
@@ -2017,11 +2220,23 @@ void level::GenerateJungle()
 	 || !(Map[x][y]->GetWalkability() & WALK))
 	continue;
 
-      if(!(RAND() % 12))
+      if(!(RAND() % P.RockChance))
+      {
 	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
+	continue;
+      }
+
+      int Roll = int(RAND() % 100);
+      int Config;
+
+      if(Roll < P.ThicketPercent)
+	Config = P.ThicketSpecies;
+      else if(Roll < P.ThicketPercent + P.CanopyPercent)
+	Config = P.CanopySpecies;
       else
-	Map[x][y]->ChangeOLTerrain(decoration::Spawn(
-	  Species.At(x, y) >= 0.5 ? PALM : TEAK));
+	Config = Species.At(x, y) >= 0.5 ? P.PrimarySpecies : P.SecondarySpecies;
+
+      Map[x][y]->ChangeOLTerrain(decoration::Spawn(Config));
     }
 }
 
@@ -2058,29 +2273,42 @@ void level::CreateTunnelNetwork(int MinLength, int MaxLength, int MinNodes, int 
 void level::GenerateSteppe()
 {
   int x, y;
+  const wildernessbiome P = WildernessBiomeForType(STEPPE);
+  int Cells[3];
+  WildernessJitterCells(P.Cells, Cells);
 
-  /* Open ground with broad dry/grassy variation, irregular rock outcrops and
-     only a few small sheltered groves. It stays a steppe, not a savanna. */
-  const int Cells[3] = { 18, 9, 4 };
+  /* Open ground with broad dry/grassy variation, irregular rock outcrops whose
+     density varies from map to map, and only a few small sheltered groves. It
+     stays a steppe, not a savanna. */
   wildernessterrainnoise Ground, Rock, Grove;
   Ground.Init(XSize, YSize, Cells);
   Rock.Init(XSize, YSize, Cells);
   Grove.Init(XSize, YSize, Cells);
-  double DarkThreshold = WildernessCoverageThreshold(Ground, XSize, YSize, 0.28);
-  double RockThreshold = WildernessCoverageThreshold(Rock, XSize, YSize, 0.03);
-  double GroveThreshold = WildernessCoverageThreshold(Grove, XSize, YSize, 0.0015);
+  double DarkThreshold = WildernessCoverageThreshold(
+    Ground, XSize, YSize, P.RichGroundPercent / 100.0);
+  double RockCoverage = Max(0.001,
+    (P.OutcropPermille + WildernessJitter(P.OutcropJitter)) / 1000.0);
+  double RockThreshold = WildernessCoverageThreshold(
+    Rock, XSize, YSize, RockCoverage);
+  double GroveCoverage = Max(0.0002,
+    P.TreeCoverage + WildernessJitter(P.CoverageJitter));
+  double GroveThreshold = WildernessCoverageThreshold(
+    Grove, XSize, YSize, GroveCoverage);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
       Map[x][y]->SetLTerrain(solidterrain::Spawn(
-	Ground.At(x, y) >= DarkThreshold ? DARK_GRASS_TERRAIN : GRASS_TERRAIN), 0);
+	Ground.At(x, y) >= DarkThreshold ? P.RichGroundConfig : P.GroundConfig), 0);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
     {
       if(Rock.At(x, y) >= RockThreshold)
 	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
-      else if(Grove.At(x, y) >= GroveThreshold)
+      else if(Grove.At(x, y) >= GroveThreshold
+	      && Ground.At(x, y) >= DarkThreshold)
+	/* Groves sit in the richer, damper ground rather than out in the open,
+	   so they read as sheltered spots. */
 	Map[x][y]->ChangeOLTerrain(decoration::Spawn(RAND_2 ? OAK : BIRCH));
     }
 }
@@ -2088,16 +2316,22 @@ void level::GenerateSteppe()
 void level::GenerateDesert()
 {
   int x, y;
+  const wildernessbiome P = WildernessBiomeForType(DESERT);
+  int Cells[3];
+  WildernessJitterCells(P.Cells, Cells);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
-      Map[x][y]->SetLTerrain(solidterrain::Spawn(SAND_TERRAIN), 0);
+      Map[x][y]->SetLTerrain(solidterrain::Spawn(P.GroundConfig), 0);
 
-  /* Rocks grouped into outcrops rather than scattered independently. */
-  const int Cells[3] = { 16, 8, 4 };
+  /* Rocks grouped into outcrops rather than scattered independently, with the
+     outcrop density varying between maps. */
   wildernessterrainnoise Rock;
   Rock.Init(XSize, YSize, Cells);
-  double RockThreshold = WildernessCoverageThreshold(Rock, XSize, YSize, 0.03);
+  double RockCoverage = Max(0.001,
+    (P.OutcropPermille + WildernessJitter(P.OutcropJitter)) / 1000.0);
+  double RockThreshold = WildernessCoverageThreshold(
+    Rock, XSize, YSize, RockCoverage);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
@@ -2122,15 +2356,18 @@ void level::GenerateDesert()
     }
   }
 
-  /* A rare oasis with a vegetated margin, not a bare water disc. */
+  /* A rare oasis: open water, a grassy ground transition around it, and only
+     then a thinning ring of palms, rather than a bare disc with a hard edge. */
   if(!(RAND() % 3))
   {
     v2 Center(5 + RAND_N(Max(1, XSize - 10)), 5 + RAND_N(Max(1, YSize - 10)));
     int Radius = 1 + RAND_N(2);
     WildernessPlaceWater(Map, Center, Radius, POOL, XSize, YSize);
 
-    for(int dx = -Radius - 1; dx <= Radius + 1; ++dx)
-      for(int dy = -Radius - 1; dy <= Radius + 1; ++dy)
+    int GroundRadius = Radius + 2;
+
+    for(int dx = -GroundRadius; dx <= GroundRadius; ++dx)
+      for(int dy = -GroundRadius; dy <= GroundRadius; ++dy)
       {
 	v2 Pos = Center + v2(dx, dy);
 
@@ -2139,10 +2376,16 @@ void level::GenerateDesert()
 
 	int Dist = (Pos - Center).GetLengthSquare();
 
-	if(Dist <= Radius * Radius || Dist > (Radius + 1) * (Radius + 1))
+	if(Dist <= Radius * Radius || Dist > GroundRadius * GroundRadius)
 	  continue;
 
-	if((Map[Pos.X][Pos.Y]->GetWalkability() & WALK) && !(RAND() % 2))
+	if(!(Map[Pos.X][Pos.Y]->GetWalkability() & WALK))
+	  continue;
+
+	Map[Pos.X][Pos.Y]->ChangeOLTerrain(0);
+	Map[Pos.X][Pos.Y]->ChangeGLTerrain(solidterrain::Spawn(GRASS_TERRAIN));
+
+	if(Dist <= (Radius + 1) * (Radius + 1) && !(RAND() % 2))
 	  Map[Pos.X][Pos.Y]->ChangeOLTerrain(decoration::Spawn(PALM));
       }
   }
@@ -2151,134 +2394,202 @@ void level::GenerateDesert()
 void level::GenerateLeafyForest()
 {
   int x, y;
+  const wildernessbiome P = WildernessBiomeForType(LEAFY_FOREST);
+  int Cells[3];
+  WildernessJitterCells(P.Cells, Cells);
 
-  /* Wider, uneven oak/birch stands with real clearings instead of the same
-     disc geometry as the evergreen forest. Teak is dropped: it is a tropical
-     species and does not belong in a strictly temperate palette. */
-  const int Cells[3] = { 11, 6, 3 };
+  /* Wider, uneven oak/birch stands with real clearings, a litter floor under
+     the trees instead of uniform lawn, and occasional damp hollows. Teak is
+     dropped: it is a tropical species, not part of a temperate palette. */
   wildernessterrainnoise Canopy, Species;
   Canopy.Init(XSize, YSize, Cells);
   Species.Init(XSize, YSize, Cells);
-  double Threshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.19);
-  double RichThreshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.32);
+  double Coverage = P.TreeCoverage + WildernessJitter(P.CoverageJitter);
+  double Threshold = WildernessCoverageThreshold(Canopy, XSize, YSize, Coverage);
+  double RichThreshold = WildernessCoverageThreshold(
+    Canopy, XSize, YSize, Coverage + P.RichGroundPercent / 100.0);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
       Map[x][y]->SetLTerrain(solidterrain::Spawn(
-	Canopy.At(x, y) >= RichThreshold ? DARK_GRASS_TERRAIN : GRASS_TERRAIN), 0);
+	Canopy.At(x, y) >= RichThreshold ? P.RichGroundConfig : P.GroundConfig), 0);
+
+  WildernessPlaceWetFeatures(P, Canopy, XSize, YSize, Map);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
     {
-      if(Canopy.At(x, y) < Threshold)
+      if(Canopy.At(x, y) < Threshold
+	 || !(Map[x][y]->GetWalkability() & WALK))
 	continue;
 
-      if(!(RAND() % 10))
+      if(!(RAND() % P.RockChance))
 	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
       else
 	Map[x][y]->ChangeOLTerrain(decoration::Spawn(
-	  Species.At(x, y) >= 0.5 ? OAK : BIRCH));
+	  Species.At(x, y) >= 0.5 ? P.PrimarySpecies : P.SecondarySpecies));
     }
 }
 
 void level::GenerateEvergreenForest()
 {
   int x, y;
+  const wildernessbiome P = WildernessBiomeForType(EVERGREEN_FOREST);
+  int Cells[3];
+  WildernessJitterCells(P.Cells, Cells);
+  const int SnowCells[3] = { 20, 10, 5 };
 
   /* Denser pine/fir stands with fewer, narrower clearings than the leafy
-     forest, plus connected snow patches in the exposed ground rather than
-     one white cell in eight. */
-  const int Cells[3] = { 10, 5, 3 };
-  const int SnowCells[3] = { 20, 10, 5 };
+     forest. Snow collects in the exposed clearings rather than under the
+     canopy, so it reads as a patchy winter forest instead of per-cell white
+     noise on a separate field. */
   wildernessterrainnoise Canopy, Species, Snow;
   Canopy.Init(XSize, YSize, Cells);
   Species.Init(XSize, YSize, Cells);
   Snow.Init(XSize, YSize, SnowCells);
-  double Threshold = WildernessCoverageThreshold(Canopy, XSize, YSize, 0.23);
-  double SnowThreshold = WildernessCoverageThreshold(Snow, XSize, YSize, 0.22);
-
-  for(x = 0; x < XSize; ++x)
-    for(y = 0; y < YSize; ++y)
-      Map[x][y]->SetLTerrain(solidterrain::Spawn(
-	Snow.At(x, y) >= SnowThreshold ? SNOW_TERRAIN : GRASS_TERRAIN), 0);
+  double Coverage = P.TreeCoverage + WildernessJitter(P.CoverageJitter);
+  double Threshold = WildernessCoverageThreshold(Canopy, XSize, YSize, Coverage);
+  double RichThreshold = WildernessCoverageThreshold(
+    Canopy, XSize, YSize, Coverage + P.RichGroundPercent / 100.0);
+  double SnowThreshold = WildernessCoverageThreshold(
+    Snow, XSize, YSize, P.SnowPercent / 100.0);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
     {
-      if(Canopy.At(x, y) < Threshold)
+      int Config = P.GroundConfig;
+
+      if(Canopy.At(x, y) >= RichThreshold)
+	Config = P.RichGroundConfig;
+      else if(Snow.At(x, y) >= SnowThreshold)
+	Config = P.SnowConfig;
+
+      Map[x][y]->SetLTerrain(solidterrain::Spawn(Config), 0);
+    }
+
+  WildernessPlaceWetFeatures(P, Canopy, XSize, YSize, Map);
+
+  for(x = 0; x < XSize; ++x)
+    for(y = 0; y < YSize; ++y)
+    {
+      if(Canopy.At(x, y) < Threshold
+	 || !(Map[x][y]->GetWalkability() & WALK))
 	continue;
 
-      if(!(RAND() % 9))
+      if(!(RAND() % P.RockChance))
 	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
       else
 	Map[x][y]->ChangeOLTerrain(decoration::Spawn(
-	  Species.At(x, y) >= 0.5 ? PINE : FIR));
+	  Species.At(x, y) >= 0.5 ? P.PrimarySpecies : P.SecondarySpecies));
     }
 }
 
 void level::GenerateTundra()
 {
   int x, y;
+  const wildernessbiome P = WildernessBiomeForType(TUNDRA);
+  int Cells[3];
+  WildernessJitterCells(P.Cells, Cells);
 
-  /* Connected exposed ground in the snow rather than an all-white field, plus
-     rock outcrops and sparse dwarf birch. */
-  const int Cells[3] = { 16, 8, 4 };
-  wildernessterrainnoise Exposed, Rock, Grove;
+  /* Connected exposed ground amid the snow, with the exposed fraction carried
+     by the profile, plus rock outcrops and sparse dwarf birch. */
+  wildernessterrainnoise Exposed, Outcrop, Grove;
   Exposed.Init(XSize, YSize, Cells);
-  Rock.Init(XSize, YSize, Cells);
+  Outcrop.Init(XSize, YSize, Cells);
   Grove.Init(XSize, YSize, Cells);
-  double ExposedThreshold =
-    WildernessCoverageThreshold(Exposed, XSize, YSize, 0.25);
-  double RockThreshold = WildernessCoverageThreshold(Rock, XSize, YSize, 0.04);
-  double GroveThreshold = WildernessCoverageThreshold(Grove, XSize, YSize, 0.006);
+  double ExposedThreshold = WildernessCoverageThreshold(
+    Exposed, XSize, YSize, P.RichGroundPercent / 100.0);
+  double RockCoverage = Max(0.001,
+    (P.OutcropPermille + WildernessJitter(P.OutcropJitter)) / 1000.0);
+  double RockThreshold = WildernessCoverageThreshold(
+    Outcrop, XSize, YSize, RockCoverage);
+  double GroveCoverage = Max(0.0002,
+    P.TreeCoverage + WildernessJitter(P.CoverageJitter));
+  double GroveThreshold = WildernessCoverageThreshold(
+    Grove, XSize, YSize, GroveCoverage);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
       Map[x][y]->SetLTerrain(solidterrain::Spawn(
-	Exposed.At(x, y) >= ExposedThreshold ? GRASS_TERRAIN : SNOW_TERRAIN), 0);
+	Exposed.At(x, y) >= ExposedThreshold ? P.RichGroundConfig : P.GroundConfig), 0);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
     {
-      if(Rock.At(x, y) >= RockThreshold)
-	Map[x][y]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
+      if(Outcrop.At(x, y) >= RockThreshold)
+	Map[x][y]->ChangeOLTerrain(boulder::Spawn(P.Boulder));
       else if(Grove.At(x, y) >= GroveThreshold)
-	Map[x][y]->ChangeOLTerrain(decoration::Spawn(DWARF_BIRCH));
+	Map[x][y]->ChangeOLTerrain(decoration::Spawn(P.PrimarySpecies));
     }
 }
 
 void level::GenerateGlacier()
 {
   int x, y;
+  const wildernessbiome P = WildernessBiomeForType(GLACIER);
+  int Cells[3];
+  WildernessJitterCells(P.Cells, Cells);
+
+  /* A glacier is a continuous ice surface broken by raised features, not
+     snow-covered ground studded with wall islands. Exposed ice ground replaces
+     snow over broad correlated regions; the walls are correlated ice masses;
+     stone outcrops follow their own field instead of a fixed screen-border
+     band; and a few short straight wall segments suggest a fracture pattern.
+     Those segments are raised obstacles, not drops into a physical crevasse:
+     they block walking and can be destroyed, which is deliberately safe
+     stylized texture rather than a fall hazard.
+     PrepareWildernessEntry() then validates reachability and carves whatever
+     opening is actually needed, so this can never seal the player in. */
+  wildernessterrainnoise Ice, Mass, Outcrop;
+  Ice.Init(XSize, YSize, Cells);
+  Mass.Init(XSize, YSize, Cells);
+  Outcrop.Init(XSize, YSize, Cells);
+  double IceThreshold = WildernessCoverageThreshold(
+    Ice, XSize, YSize, P.RichGroundPercent / 100.0);
+  double MassCoverage = Max(0.02,
+    (P.WallPermille + WildernessJitter(60)) / 1000.0);
+  double MassThreshold = WildernessCoverageThreshold(
+    Mass, XSize, YSize, MassCoverage);
+  double OutcropCoverage = Max(0.001,
+    (P.OutcropPermille + WildernessJitter(P.OutcropJitter)) / 1000.0);
+  double OutcropThreshold = WildernessCoverageThreshold(
+    Outcrop, XSize, YSize, OutcropCoverage);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
-      Map[x][y]->SetLTerrain(solidterrain::Spawn(SNOW_TERRAIN), 0);
-
-  /* Broad, correlated ice fields with wide snow lanes between them, rather
-     than scattered single wall dots pretending to be ridges. Exposed stone is
-     concentrated toward the margins and outcrops instead of being mixed at
-     random through the ice. PrepareWildernessEntry() then validates
-     reachability and carves whatever opening is actually needed, so this
-     generation can never seal the player in. */
-  const int Cells[3] = { 20, 10, 5 };
-  wildernessterrainnoise Ice;
-  Ice.Init(XSize, YSize, Cells);
-  double Threshold = WildernessCoverageThreshold(Ice, XSize, YSize, 0.22);
-  int Margin = 6;
+      Map[x][y]->SetLTerrain(solidterrain::Spawn(
+	Ice.At(x, y) >= IceThreshold ? P.RichGroundConfig : P.GroundConfig), 0);
 
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
     {
-      if(Ice.At(x, y) >= Threshold)
-      {
-	truth Stone = x < Margin || y < Margin
-	  || x >= XSize - Margin || y >= YSize - Margin;
-	Map[x][y]->ChangeOLTerrain(wall::Spawn(Stone ? STONE_WALL : ICE_WALL));
-      }
-      else if(!(RAND() % 40))
-	Map[x][y]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
+      if(Mass.At(x, y) >= MassThreshold)
+	Map[x][y]->ChangeOLTerrain(wall::Spawn(ICE_WALL));
+      else if(Outcrop.At(x, y) >= OutcropThreshold)
+	Map[x][y]->ChangeOLTerrain(wall::Spawn(STONE_WALL));
+      else if(!(RAND() % 60))
+	Map[x][y]->ChangeOLTerrain(boulder::Spawn(P.Boulder));
     }
+
+  /* Fracture lines: short straight wall segments that read as cracks in the
+     surface rather than the round blobs a thresholded field makes. They are
+     raised and destroyable, not holes, so they never need a fall mechanic. */
+  int Fractures = Max(2, XSize * YSize / P.FractureArea);
+
+  for(int c = 0; c < Fractures; ++c)
+  {
+    v2 Pos(RAND_N(XSize), RAND_N(YSize));
+    truth Vertical = RAND_2;
+    int Length = 3 + RAND_N(9);
+
+    for(int s = 0; s < Length; ++s)
+    {
+      v2 Q = Pos + (Vertical ? v2(0, s) : v2(s, 0));
+
+      if(IsValidPos(Q) && (Map[Q.X][Q.Y]->GetWalkability() & WALK))
+	Map[Q.X][Q.Y]->ChangeOLTerrain(wall::Spawn(ICE_WALL));
+    }
+  }
 }
 
 void level::GenerateOcean()
@@ -2358,6 +2669,10 @@ void level::RestoreNonSerializedStats()
     + *LevelScript->GetEnchantmentMinusChanceDelta() * Index;
   EnchantmentPlusChance = *LevelScript->GetEnchantmentPlusChanceBase()
     + *LevelScript->GetEnchantmentPlusChanceDelta() * Index;
+
+  /* Whether this level owns a weather cycle is a property of its biome, so it
+     is recomputed after every load rather than serialized. */
+  WeatherEnabled = IsWeatherBiome(LevelScript->GetType() ? *LevelScript->GetType() : 0);
 }
 
 int level::GetWildernessGroundConfig() const
@@ -2378,29 +2693,42 @@ void level::PrepareWildernessEntry()
   truth Ocean = *LevelScript->GetType() == OCEAN_LEVEL;
   int GroundConfig = GetWildernessGroundConfig();
 
-  for(int x = CenterX - 2; x <= CenterX + 2; ++x)
-    for(int y = CenterY - 2; y <= CenterY + 2; ++y)
-      if(IsValidPos(x, y))
-	MakeWildernessPassable(x, y, GroundConfig, Ocean);
+  /* The arrival clearing is a small irregular dell nudged off the exact map
+     centre, so every local area does not open on the same carved square stamp.
+     The offset is bounded and the radius is large enough that the exact centre
+     stays clear for anything that still lands there, and the world-map return
+     tile is not affected. */
+  int Jitter = 2;
+  v2 Entry(CenterX + (RAND_N(2 * Jitter + 1) - Jitter),
+	   CenterY + (RAND_N(2 * Jitter + 1) - Jitter));
+  int Radius = 3 + RAND_N(2);
 
-  SetEntryPos(WILDERNESS_LOCAL_ENTRY, v2(CenterX, CenterY));
+  for(int dx = -Radius; dx <= Radius; ++dx)
+    for(int dy = -Radius; dy <= Radius; ++dy)
+    {
+      v2 Pos = Entry + v2(dx, dy);
+
+      if(!IsValidPos(Pos))
+	continue;
+
+      if((Pos - Entry).GetLengthSquare() <= Radius * Radius + RAND_N(2))
+	MakeWildernessPassable(Pos.X, Pos.Y, GroundConfig, Ocean);
+    }
+
+  SetEntryPos(WILDERNESS_LOCAL_ENTRY, Entry);
 
   if(Ocean)
     return; /* open water already reaches every edge */
 
-  /* Guarantee a three-wide exit corridor to every edge so that large
-     followers are never sealed in by a one-square bottleneck. */
-  ForceWildernessExitRoutes();
+  /* Guarantee a route wide enough for a four-square follower to every edge. */
+  ForceWildernessExitRoutes(Entry);
 }
 
-void level::ForceWildernessExitRoutes()
+void level::ForceWildernessExitRoutes(v2 From)
 {
-  int CenterX = XSize / 2;
-  int CenterY = YSize / 2;
   int GroundConfig = GetWildernessGroundConfig();
-  v2 Center(CenterX, CenterY);
-  v2 Edges[4] = { v2(0, CenterY), v2(XSize - 1, CenterY),
-		  v2(CenterX, 0), v2(CenterX, YSize - 1) };
+  v2 Edges[4] = { v2(0, From.Y), v2(XSize - 1, From.Y),
+		  v2(From.X, 0), v2(From.X, YSize - 1) };
 
   for(int c = 0; c < 4; ++c)
   {
@@ -2408,10 +2736,10 @@ void level::ForceWildernessExitRoutes()
        usable ground would only stamp the same road cross on every region.
        Carve a meandering opening only where the footprint-aware check
        actually fails, so the old narrow-route bug cannot return. */
-    if(!WildernessWideRouteExists(Center, Edges[c]))
-      CarveWildernessTrail(Center, Edges[c], GroundConfig);
+    if(!WildernessWideRouteExists(From, Edges[c]))
+      CarveWildernessTrail(From, Edges[c], GroundConfig);
 
-    if(!WildernessWideRouteExists(Center, Edges[c]))
+    if(!WildernessWideRouteExists(From, Edges[c]))
       ABORT("Wilderness exit corridor %d could not be opened!", c);
   }
 }
@@ -3329,6 +3657,350 @@ void level::DisableGlobalRain()
     for(int y = 0; y < YSize; ++y)
       Map[x][y]->DisableGlobalRain();
 }
+
+/* --------------------------------------------------------------------------
+   Wilderness weather
+   --------------------------------------------------------------------------
+   Every enterable wilderness biome owns a small cycle of clear and
+   precipitation spells: a biome-suited type (rain or snow), a per-state
+   intensity, and spell lengths drawn from a persisted stream. The state lives
+   on the level and is serialized, so a save, an autosave, a refusal followed by
+   a real entry, or a leave-and-return resumes the same spell. A tile derives
+   its own stream from its identity, so two jungles do not change together.
+   The precipitation stays visual: it never spills standing liquid and never
+   repaints terrain, which keeps a long spell from flooding the map. */
+
+enum weathermaterial { WEATHER_NO_MATERIAL = 0, WEATHER_RAIN, WEATHER_SNOW };
+
+/* Times are game ticks on the same clock the scripted town rain uses, so a
+   spell is a meaningful stretch of play rather than a real-time second. */
+struct weatherprofile
+{
+  int Material;                        /* WEATHER_RAIN or WEATHER_SNOW */
+  int Weight[WEATHER_STATE_COUNT];     /* relative chance of entering a state */
+  int Volume[WEATHER_STATE_COUNT];     /* liquid volume while in the state */
+  int MinTicks[WEATHER_STATE_COUNT];   /* spell length range, in game ticks */
+  int MaxTicks[WEATHER_STATE_COUNT];
+  int Wind;                            /* horizontal drift of the drops */
+  int Fall;                            /* downward speed of the drops */
+  int HeavyWindBonus;                  /* extra drift while heavy */
+};
+
+/* A level script type is a wilderness biome exactly when the generator
+   dispatches it to GenerateWilderness(). */
+truth IsWeatherBiome(int Type)
+{
+  return Type >= DESERT && Type <= OCEAN_LEVEL;
+}
+
+weatherprofile WildernessWeatherProfile(int Type)
+{
+  weatherprofile W = {};
+  W.Material = WEATHER_RAIN;
+  W.Wind = 120;
+  W.Fall = 256;
+
+  switch(Type)
+  {
+   case JUNGLE:
+     W.Weight[WEATHER_CLEAR] = 30;
+     W.Weight[WEATHER_LIGHT] = 55;
+     W.Weight[WEATHER_HEAVY] = 15;
+     W.Volume[WEATHER_LIGHT] = 90;
+     W.Volume[WEATHER_HEAVY] = 200;
+     W.MinTicks[WEATHER_CLEAR] = 1500; W.MaxTicks[WEATHER_CLEAR] = 3600;
+     W.MinTicks[WEATHER_LIGHT] = 900; W.MaxTicks[WEATHER_LIGHT] = 2200;
+     W.MinTicks[WEATHER_HEAVY] = 400; W.MaxTicks[WEATHER_HEAVY] = 1100;
+     W.Wind = 90;
+     W.HeavyWindBonus = 60;
+     break;
+
+   case LEAFY_FOREST:
+     W.Weight[WEATHER_CLEAR] = 45;
+     W.Weight[WEATHER_LIGHT] = 45;
+     W.Weight[WEATHER_HEAVY] = 10;
+     W.Volume[WEATHER_LIGHT] = 70;
+     W.Volume[WEATHER_HEAVY] = 150;
+     W.MinTicks[WEATHER_CLEAR] = 1800; W.MaxTicks[WEATHER_CLEAR] = 4200;
+     W.MinTicks[WEATHER_LIGHT] = 900; W.MaxTicks[WEATHER_LIGHT] = 2400;
+     W.MinTicks[WEATHER_HEAVY] = 500; W.MaxTicks[WEATHER_HEAVY] = 1300;
+     W.Wind = 110;
+     W.HeavyWindBonus = 50;
+     break;
+
+   case EVERGREEN_FOREST:
+     W.Material = WEATHER_SNOW;
+     W.Weight[WEATHER_CLEAR] = 40;
+     W.Weight[WEATHER_LIGHT] = 50;
+     W.Weight[WEATHER_HEAVY] = 10;
+     W.Volume[WEATHER_LIGHT] = 70;
+     W.Volume[WEATHER_HEAVY] = 150;
+     W.MinTicks[WEATHER_CLEAR] = 1800; W.MaxTicks[WEATHER_CLEAR] = 4200;
+     W.MinTicks[WEATHER_LIGHT] = 1000; W.MaxTicks[WEATHER_LIGHT] = 2600;
+     W.MinTicks[WEATHER_HEAVY] = 600; W.MaxTicks[WEATHER_HEAVY] = 1500;
+     W.Wind = -80;
+     W.Fall = 128;
+     W.HeavyWindBonus = -40;
+     break;
+
+   case STEPPE:
+     W.Weight[WEATHER_CLEAR] = 70;
+     W.Weight[WEATHER_LIGHT] = 28;
+     W.Weight[WEATHER_HEAVY] = 2;
+     W.Volume[WEATHER_LIGHT] = 45;
+     W.Volume[WEATHER_HEAVY] = 90;
+     W.MinTicks[WEATHER_CLEAR] = 2400; W.MaxTicks[WEATHER_CLEAR] = 6000;
+     W.MinTicks[WEATHER_LIGHT] = 800; W.MaxTicks[WEATHER_LIGHT] = 2000;
+     W.MinTicks[WEATHER_HEAVY] = 400; W.MaxTicks[WEATHER_HEAVY] = 900;
+     W.Wind = 140;
+     W.HeavyWindBonus = 80;
+     break;
+
+   case DESERT:
+     W.Weight[WEATHER_CLEAR] = 94;
+     W.Weight[WEATHER_LIGHT] = 6;
+     W.Weight[WEATHER_HEAVY] = 0;
+     W.Volume[WEATHER_LIGHT] = 35;
+     W.Volume[WEATHER_HEAVY] = 0;
+     W.MinTicks[WEATHER_CLEAR] = 3000; W.MaxTicks[WEATHER_CLEAR] = 8000;
+     W.MinTicks[WEATHER_LIGHT] = 500; W.MaxTicks[WEATHER_LIGHT] = 1400;
+     W.MinTicks[WEATHER_HEAVY] = 0; W.MaxTicks[WEATHER_HEAVY] = 0;
+     W.Wind = 90;
+     W.HeavyWindBonus = 0;
+     break;
+
+   case TUNDRA:
+     W.Material = WEATHER_SNOW;
+     W.Weight[WEATHER_CLEAR] = 45;
+     W.Weight[WEATHER_LIGHT] = 50;
+     W.Weight[WEATHER_HEAVY] = 5;
+     W.Volume[WEATHER_LIGHT] = 60;
+     W.Volume[WEATHER_HEAVY] = 130;
+     W.MinTicks[WEATHER_CLEAR] = 1800; W.MaxTicks[WEATHER_CLEAR] = 4400;
+     W.MinTicks[WEATHER_LIGHT] = 1000; W.MaxTicks[WEATHER_LIGHT] = 2600;
+     W.MinTicks[WEATHER_HEAVY] = 600; W.MaxTicks[WEATHER_HEAVY] = 1600;
+     W.Wind = -60;
+     W.Fall = 128;
+     W.HeavyWindBonus = -40;
+     break;
+
+   case GLACIER:
+     W.Material = WEATHER_SNOW;
+     W.Weight[WEATHER_CLEAR] = 35;
+     W.Weight[WEATHER_LIGHT] = 45;
+     W.Weight[WEATHER_HEAVY] = 20;
+     W.Volume[WEATHER_LIGHT] = 80;
+     W.Volume[WEATHER_HEAVY] = 190;
+     W.MinTicks[WEATHER_CLEAR] = 1500; W.MaxTicks[WEATHER_CLEAR] = 3800;
+     W.MinTicks[WEATHER_LIGHT] = 900; W.MaxTicks[WEATHER_LIGHT] = 2400;
+     W.MinTicks[WEATHER_HEAVY] = 500; W.MaxTicks[WEATHER_HEAVY] = 1400;
+     W.Wind = 160;
+     W.Fall = 128;
+     W.HeavyWindBonus = 90;
+     break;
+
+   case OCEAN_LEVEL:
+     W.Weight[WEATHER_CLEAR] = 40;
+     W.Weight[WEATHER_LIGHT] = 45;
+     W.Weight[WEATHER_HEAVY] = 15;
+     W.Volume[WEATHER_LIGHT] = 80;
+     W.Volume[WEATHER_HEAVY] = 190;
+     W.MinTicks[WEATHER_CLEAR] = 1600; W.MaxTicks[WEATHER_CLEAR] = 4000;
+     W.MinTicks[WEATHER_LIGHT] = 900; W.MaxTicks[WEATHER_LIGHT] = 2400;
+     W.MinTicks[WEATHER_HEAVY] = 500; W.MaxTicks[WEATHER_HEAVY] = 1400;
+     W.Wind = 160;
+     W.Fall = 300;
+     W.HeavyWindBonus = 90;
+     break;
+
+   default:
+     W.Material = WEATHER_NO_MATERIAL;
+     break;
+  }
+
+  return W;
+}
+
+/* Small deterministic stream, so a tile's schedule never marches in step with
+   its neighbours' or with the shared game RNG. */
+int NextWeatherRandom(ulong& Stream)
+{
+  Stream = Stream * 1103515245UL + 12345UL;
+  return int((Stream >> 16) & 0x7fff);
+}
+
+int RollWeatherState(const weatherprofile& W, ulong& Stream)
+{
+  int Total = W.Weight[WEATHER_CLEAR] + W.Weight[WEATHER_LIGHT]
+    + W.Weight[WEATHER_HEAVY];
+
+  if(Total <= 0)
+    return WEATHER_CLEAR;
+
+  int Roll = NextWeatherRandom(Stream) % Total;
+
+  for(int s = 0; s < WEATHER_STATE_COUNT; ++s)
+  {
+    if(Roll < W.Weight[s])
+      return s;
+
+    Roll -= W.Weight[s];
+  }
+
+  return WEATHER_CLEAR;
+}
+
+long RollWeatherDuration(const weatherprofile& W, int Which, ulong& Stream)
+{
+  int Min = W.MinTicks[Which];
+  int Max = W.MaxTicks[Which];
+
+  if(Max <= Min)
+    return Min;
+
+  return Min + NextWeatherRandom(Stream) % (Max - Min + 1);
+}
+
+/* A calm spell is a gentle drift, never a zero vector: the drop code divides by
+   the speed's magnitude. */
+v2 WeatherSpeedFor(const weatherprofile& W, int Which)
+{
+  int Wind = W.Wind + (Which == WEATHER_HEAVY ? W.HeavyWindBonus : 0);
+  return v2(Wind, Max(1, W.Fall));
+}
+
+void level::InitializeWeather()
+{
+  int Type = LevelScript->GetType() ? *LevelScript->GetType() : 0;
+  WeatherEnabled = IsWeatherBiome(Type);
+
+  if(!WeatherEnabled)
+    return;
+
+  weatherprofile W = WildernessWeatherProfile(Type);
+
+  /* Seed from the level's own identity, not the shared RNG. */
+  WeatherRandomState = (Dungeon ? ulong(Dungeon->GetIndex()) : 0) * 65537UL
+    + ulong(Index);
+  WeatherRandomState ^= WeatherRandomState >> 16;
+  WeatherRandomState *= 0x7feb352dUL;
+  WeatherRandomState ^= WeatherRandomState >> 15;
+  WeatherRandomState *= 0x846ca68bUL;
+  WeatherRandomState ^= WeatherRandomState >> 16;
+
+  WeatherState = RollWeatherState(W, WeatherRandomState);
+  WeatherTimer = RollWeatherDuration(W, WeatherState, WeatherRandomState);
+
+  /* The material and phase exist from generation, but dormant: the volume is
+     zero, so a refused first entry is written out quietly and the spell only
+     starts falling once somebody is actually there. */
+  if(W.Material == WEATHER_SNOW)
+    CreateGlobalRain(powder::Spawn(SNOW), WeatherSpeedFor(W, WeatherState));
+  else
+    CreateGlobalRain(liquid::Spawn(WATER), WeatherSpeedFor(W, WeatherState));
+
+  if(GlobalRainLiquid)
+    GlobalRainLiquid->SetVolumeNoSignals(0);
+}
+
+void level::ApplyWeatherState()
+{
+  if(!WeatherEnabled || !GlobalRainLiquid || !LevelScript->GetType())
+    return;
+
+  weatherprofile W = WildernessWeatherProfile(*LevelScript->GetType());
+  long NewVolume = W.Volume[WeatherState];
+  long OldVolume = GlobalRainLiquid->GetVolume();
+
+  if(NewVolume && !OldVolume)
+    EnableGlobalRain();
+  else if(!NewVolume && OldVolume)
+    DisableGlobalRain();
+
+  GlobalRainLiquid->SetVolumeNoSignals(NewVolume);
+
+  /* Push the wind into the active binding and into every existing drop, since
+     setting only the game binding leaves old rain objects at their old speed. */
+  SetGlobalRainSpeed(WeatherSpeedFor(W, WeatherState));
+}
+
+void level::UpdateWeather()
+{
+  if(!WeatherEnabled || !LevelScript->GetType())
+    return;
+
+  /* A resumed map reloads its precipitation material with zero volume; the
+     first time the clock runs, re-apply the stored spell so a wet state becomes
+     visible again instead of waiting for the next transition. This is cheap and
+     only ever fires once after a load. */
+  if(GlobalRainLiquid && WeatherState != WEATHER_CLEAR
+     && !GlobalRainLiquid->GetVolume())
+    ApplyWeatherState();
+
+  if(WeatherTimer > 0)
+  {
+    --WeatherTimer;
+    return;
+  }
+
+  weatherprofile W = WildernessWeatherProfile(*LevelScript->GetType());
+  WeatherState = RollWeatherState(W, WeatherRandomState);
+  WeatherTimer = RollWeatherDuration(W, WeatherState, WeatherRandomState);
+  ApplyWeatherState();
+}
+
+void level::SetGlobalRainSpeed(v2 Speed)
+{
+  GlobalRainSpeed = Speed;
+
+  if(game::GetGlobalRainLiquid() && game::GetGlobalRainLiquid() == GlobalRainLiquid)
+    game::SetGlobalRainSpeed(Speed);
+
+  for(int x = 0; x < XSize; ++x)
+    for(int y = 0; y < YSize; ++y)
+      Map[x][y]->SetGlobalRainSpeed(Speed);
+}
+
+#ifdef WILDERNESS_TEST_HARNESS
+void level::ForceWeatherForTest(int State, long Duration)
+{
+  WeatherState = State;
+  WeatherTimer = Duration;
+  ApplyWeatherState();
+}
+
+void level::GetWeatherDurationBoundsForTest(int State, int& Min, int& Max) const
+{
+  weatherprofile W = WildernessWeatherProfile(LevelScript->GetType()
+					      ? *LevelScript->GetType() : 0);
+  Min = W.MinTicks[State];
+  Max = W.MaxTicks[State];
+}
+
+int level::GetWeatherStateVolumeForTest(int State) const
+{
+  weatherprofile W = WildernessWeatherProfile(LevelScript->GetType()
+					      ? *LevelScript->GetType() : 0);
+  return W.Volume[State];
+}
+
+void level::TickWeatherForTest(int Times)
+{
+  for(int x = 0; x < XSize; ++x)
+    for(int y = 0; y < YSize; ++y)
+      Map[x][y]->TickRainsForTest(Times);
+}
+
+truth level::GlobalRainsHaveSpeedForTest(v2 Speed) const
+{
+  for(int x = 0; x < XSize; ++x)
+    for(int y = 0; y < YSize; ++y)
+      if(!Map[x][y]->GlobalRainsHaveSpeedForTest(Speed))
+	return false;
+
+  return true;
+}
+#endif
 
 void level::InitLastSeen()
 {

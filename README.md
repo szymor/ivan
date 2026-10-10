@@ -171,9 +171,12 @@ walking off any map edge and you return to the exact world-map tile you came
 from. Wildlife is hostile, so be careful. Note that sea travel is still
 restricted: you can only enter ocean tiles your character can actually reach,
 and open sea has no islands. Forests are generated as broad, uneven stands with
-clearings rather than a few isolated groves, and the terrain is generated once
-so it persists. Saves from version 119 and earlier are not compatible; a new
-game is required.
+litter floors and clearings rather than a few isolated groves; a jungle's dense
+foliage blocks line of sight and its thickets cannot be walked through. The
+terrain is generated once so it persists. Wilderness areas also have their own
+changing weather, suited to the biome (rain in the jungle and forests, snow in
+the cold north, mostly dry elsewhere). Saves from version 120 and earlier are
+not compatible; a new game is required.
 
 **Q:** I am a DOS user. When I try to run IVAN, I get the message "Load error:
 no DPMI - Get csdpmi*b.zip".
