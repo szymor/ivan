@@ -335,7 +335,7 @@ decoration
     MaterialColorB = rgb16(32, 100, 32);
     NameSingular = "cactus";
     NamePlural = "cactuses";
-    BitmapPos = 16, 352;
+    BitmapPos = 96, 352;
     HPModifier = 20;
     LeftOverItems == 0;
   }
