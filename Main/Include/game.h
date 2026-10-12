@@ -383,6 +383,8 @@ class game
   /* Level files are named after PlayerName via SaveName(); a subprocess phase
      that saves and reloads has to use the same name on both sides. */
   static void SetPlayerNameForTest(const festring& What) { PlayerName = What; }
+  static void SetTruthQuestionHandlerForTest(truth (*Handler)(const festring&))
+  { TruthQuestionHandlerForTest = Handler; }
   /* Forces the next destination placement to fail. Some environments worth
      testing are not reliably unplaceable for any ordinary companion (a town
      with a lake, a cave that may hold water), and seeding a map just to make
@@ -527,6 +529,7 @@ class game
   static truth Generating;
 #ifdef WILDERNESS_TEST_HARNESS
   static truth PlacementFailureForced;
+  static truth (*TruthQuestionHandlerForTest)(const festring&);
 #endif
   static dangermap DangerMap;
   static int NextDangerIDType;

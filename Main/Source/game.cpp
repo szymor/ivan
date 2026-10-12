@@ -57,6 +57,7 @@
 #define LOADED 0
 #define NEW_GAME 1
 #define BACK 2
+#define LOAD_ERROR 3
 
 int game::CurrentLevelIndex;
 truth game::InWilderness = false;
@@ -75,6 +76,7 @@ truth game::Zoom;
 truth game::Generating = false;
 #ifdef WILDERNESS_TEST_HARNESS
 truth game::PlacementFailureForced = false;
+truth (*game::TruthQuestionHandlerForTest)(const festring&) = 0;
 #endif
 double game::AveragePlayerArmStrengthExperience;
 double game::AveragePlayerLegStrengthExperience;
@@ -385,6 +387,11 @@ truth game::Init(const festring& Name)
 
       return true;
     }
+   case LOAD_ERROR:
+    iosystem::TextScreen(CONST_S("Cannot load this save: the saved player position is invalid,\n"
+				"or no living player is present there.\n\n"
+				"The save files may be inconsistent. They have not been removed."));
+    return false;
    default:
     return false;
   }
@@ -414,6 +421,18 @@ void game::DeInit()
   delete GameScript;
   msgsystem::Format();
   DangerMap.clear();
+  SetPlayer(0);
+  CurrentArea = 0;
+  CurrentLevel = 0;
+  CurrentLSquareMap = 0;
+  CurrentWSquareMap = 0;
+  AreaInLoad = 0;
+  SquareInLoad = 0;
+  Dungeon = 0;
+  God = 0;
+  Team = 0;
+  GameScript = 0;
+  Dungeons = Teams = 0;
 }
 
 void game::Run()
@@ -693,6 +712,11 @@ const char* game::Insult() // convert to array
 
 truth game::TruthQuestion(const festring& String, int DefaultAnswer, int OtherKeyForTrue)
 {
+#ifdef WILDERNESS_TEST_HARNESS
+  if(TruthQuestionHandlerForTest)
+    return TruthQuestionHandlerForTest(String);
+#endif
+
   if(DefaultAnswer == NO)
     DefaultAnswer = 'n';
   else if(DefaultAnswer == YES)
@@ -898,7 +922,18 @@ int game::Load(const festring& SaveName)
 
   v2 Pos;
   SaveFile >> Pos >> PlayerName;
-  SetPlayer(GetCurrentArea()->GetSquare(Pos)->GetCharacter());
+  character* SavedPlayer = GetCurrentArea()->IsValidPos(Pos)
+    ? GetCurrentArea()->GetSquare(Pos)->GetCharacter() : 0;
+
+  /* Never turn an arbitrary occupant into the player or continue with a null
+     player when an old main save no longer matches its working area files. */
+  if(!SavedPlayer || !SavedPlayer->IsPlayer() || !SavedPlayer->IsEnabled())
+  {
+    DeInit();
+    return LOAD_ERROR;
+  }
+
+  SetPlayer(SavedPlayer);
   msgsystem::Load(SaveFile);
   SaveFile >> DangerMap >> NextDangerIDType >> NextDangerIDConfigIndex;
   SaveFile >> DefaultPolymorphTo >> DefaultSummonMonster;

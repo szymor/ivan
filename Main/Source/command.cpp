@@ -446,7 +446,16 @@ truth commandsystem::Quit(character* Char)
     Char->ShowAdventureInfo();
     festring Msg = CONST_S("cowardly quit the game");
     Char->AddScoreEntry(Msg, 0.75);
-    game::End(Msg, !game::WizardModeIsActive() || game::TruthQuestion(CONST_S("Remove saves? [y/N]")));
+    truth RemoveSaves = !game::WizardModeIsActive()
+      || game::TruthQuestion(CONST_S("Remove saves instead of saving your current progress? [y/N]"));
+
+    /* Travel updates the area files independently of the main save. Keeping
+       them without a fresh save could leave the saved player in an area that
+       has already been written out without them. */
+    if(!RemoveSaves)
+      game::Save();
+
+    game::End(Msg, RemoveSaves);
     return true;
   }
   else

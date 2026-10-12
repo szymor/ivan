@@ -46,6 +46,7 @@ class commandsystem
   /* Exposes the real command handler so the diagnostic can exercise the `>`
      path itself, not merely the API it happens to call. */
   static truth TestGoDown(character* Char) { return GoDown(Char); }
+  static truth TestQuit(character* Char) { return Quit(Char); }
 #endif
  private:
   static truth Apply(character*);

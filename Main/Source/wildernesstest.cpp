@@ -1241,6 +1241,11 @@ namespace
 
     return Duplicates;
   }
+
+  truth ConfirmQuitAndKeepSave(const festring& Question)
+  {
+    return Question == "Your quest is not yet compeleted! Really quit? [y/N]";
+  }
 }
 
 /* Child entry point for the cases that must abort. Each returns normally only
@@ -1319,6 +1324,140 @@ int WildernessResumeCase(const char* Phase, const char* Name)
   festring Base = !strcmp(Name, "AutoSave")
     ? game::GetAutoSaveFileName() : game::SaveName(Name);
   festring FactsPath = festring(Base) + ".facts";
+
+  /* Exercise the real quit command after travel has made the old main save
+     inconsistent with its area files. Both directions must save the current
+     player, not preserve the checkpoint from before the transfer. */
+#ifdef WIZARD
+  if(!strcmp(Phase, "quitlocal") || !strcmp(Phase, "quitworld"))
+  {
+    BootstrapGame();
+    game::SetPlayerNameForTest(Name);
+    game::ActivateWizardMode();
+    worldmap* Map = new worldmap(WORLD_MAP_WIDTH, WORLD_MAP_HEIGHT);
+    game::SetWorldMapForTest(Map);
+    game::SetCurrentArea(Map);
+    game::SetCurrentWSquareMap(Map->GetMap());
+    game::SetCurrentLevel(0);
+    game::SetCurrentLSquareMap(0);
+    game::SetCurrentDungeonIndex(WORLD_MAP);
+    game::SetCurrentLevelIndex(WORLD_MAP);
+    v2 Pos(10, 10);
+    Map->GetWSquare(Pos)->SetGWTerrain(jungle::Spawn());
+    character* P = game::GetPlayer();
+    P->PutTo(Pos);
+    P->SetMoney(100);
+    game::Save(Base);
+
+    if(!game::TryEnterWilderness(Pos))
+      return 1;
+
+    if(!strcmp(Phase, "quitworld"))
+    {
+      game::Save(Base);
+      if(!game::TryTravel(WORLD_MAP, WORLD_MAP,
+         WildernessReturnEntry(WildernessTileIDFromSlot(game::GetCurrentLevelIndex())),
+         false, false))
+        return 1;
+    }
+
+    P->SetMoney(654321);
+    game::SetTruthQuestionHandlerForTest(ConfirmQuitAndKeepSave);
+    try
+    {
+      commandsystem::TestQuit(P);
+      std::cout << "  FAIL quit did not return to the menu" << std::endl;
+      return 1;
+    }
+    catch(quitrequest)
+    {
+    }
+    game::SetTruthQuestionHandlerForTest(0);
+    return game::IsRunning() ? 1 : 0;
+  }
+
+  if(!strcmp(Phase, "loadquitlocal") || !strcmp(Phase, "loadquitworld"))
+  {
+    /* Use Load directly so a regression cannot block on an error dialog. */
+    if(game::Load(Base) != 0 || !game::GetPlayer()
+       || game::GetPlayer()->GetMoney() != 654321
+       || game::IsInWilderness() != !strcmp(Phase, "loadquitworld"))
+    {
+      std::cout << "  FAIL preserved quit did not resume current progress"
+		<< std::endl;
+      return 1;
+    }
+    game::DeInit();
+    return 0;
+  }
+#endif
+
+  if(!strcmp(Phase, "saveinvalid"))
+  {
+    BootstrapGame();
+    game::SetPlayerNameForTest(Name);
+    worldmap* Map = new worldmap(WORLD_MAP_WIDTH, WORLD_MAP_HEIGHT);
+    game::SetWorldMapForTest(Map);
+    game::SetCurrentArea(Map);
+    game::SetCurrentWSquareMap(Map->GetMap());
+    game::SetCurrentLevel(0);
+    game::SetCurrentLSquareMap(0);
+    game::SetCurrentDungeonIndex(WORLD_MAP);
+    game::SetCurrentLevelIndex(WORLD_MAP);
+    character* P = game::GetPlayer();
+    P->PutTo(v2(10, 10));
+    game::Save(Base);
+
+    /* Keep the main save but overwrite its area with a missing player, an
+       ordinary occupant, a disabled player, or a map too small for Pos. */
+    if(!strcmp(Name, "invaliddead"))
+      P->Disable();
+    else if(!strcmp(Name, "invalidoccupant"))
+    {
+      P->Remove();
+      character* Other = dog::Spawn();
+      Other->SetTeam(game::GetTeam(PLAYER_TEAM));
+      Other->PutTo(v2(10, 10));
+    }
+    else if(!strcmp(Name, "invalidposition"))
+    {
+      /* Write the area files from a map that cannot contain the saved
+	 position, without disturbing the live map the player stands on. */
+      worldmap* Old = game::GetWorldMap();
+      worldmap* Small = new worldmap(8, 8);
+      game::SetWorldMapForTest(Small);
+      game::SaveWorldMap(Base, false);
+      game::SetWorldMapForTest(Old);
+      delete Small;
+      return 0;
+    }
+    else
+      P->Remove();
+
+    game::SaveWorldMap(Base, false);
+    return 0;
+  }
+
+  if(!strcmp(Phase, "loadinvalid"))
+  {
+    if(game::Load(Base) == 0 || game::GetPlayer() || game::GetCurrentArea()
+       || game::GetCurrentLevel() || game::GetWorldMap())
+    {
+      std::cout << "  FAIL invalid player was accepted or load state leaked"
+		<< std::endl;
+      return 1;
+    }
+
+    /* A rejected load must leave the process able to load another game. */
+    if(game::Load(game::SaveName("wildreloadsea")) != 0
+       || !game::GetPlayer() || game::GetPlayer()->GetMoney() != 654321)
+    {
+      std::cout << "  FAIL valid load after rejected save" << std::endl;
+      return 1;
+    }
+    game::DeInit();
+    return 0;
+  }
 
   if(!strcmp(Phase, "save"))
   {
@@ -4081,6 +4220,21 @@ int WildernessTest(int Seeds)
 
     Failures += RunResumePhase("saveworld", "wildreloadsea");
     Failures += RunResumePhase("loadworld", "wildreloadsea");
+#ifdef WIZARD
+    Failures += RunResumePhase("quitlocal", "quitlocal");
+    Failures += RunResumePhase("loadquitlocal", "quitlocal");
+    Failures += RunResumePhase("quitworld", "quitworld");
+    Failures += RunResumePhase("loadquitworld", "quitworld");
+#endif
+    const char* Invalid[] = { "invalidmissing", "invalidoccupant",
+			      "invalidposition", "invaliddead" };
+
+    for(uint n = 0; n < sizeof(Invalid) / sizeof(Invalid[0]); ++n)
+    {
+      Failures += RunResumePhase("saveinvalid", Invalid[n]);
+      Failures += RunResumePhase("loadinvalid", Invalid[n]);
+    }
+
     Failures += RunResumePhase("saveenv", "wildenv");
     Failures += RunResumePhase("loadenv", "wildenv");
     Failures += RunResumePhase("arena", "sumo");
