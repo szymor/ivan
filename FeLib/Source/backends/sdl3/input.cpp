@@ -38,6 +38,29 @@ static truth (*QuitMessageHandler)() = 0;
 
 static truth Active = true;
 
+/* The digit a keypad key also reports as TEXT_INPUT while NumLock is on, or 0
+   for keypad keys that report no text. A keypad direction key therefore
+   arrives as two events, and this is used to drop the redundant second one. */
+static int PendingKeypadText = 0;
+
+static int KeypadTextOf(int Key)
+{
+  switch(Key)
+  {
+   case SDLK_KP_0: return '0';
+   case SDLK_KP_1: return '1';
+   case SDLK_KP_2: return '2';
+   case SDLK_KP_3: return '3';
+   case SDLK_KP_4: return '4';
+   case SDLK_KP_5: return '5';
+   case SDLK_KP_6: return '6';
+   case SDLK_KP_7: return '7';
+   case SDLK_KP_8: return '8';
+   case SDLK_KP_9: return '9';
+   default: return 0;
+  }
+}
+
 static void ProcessMessage(SDL_Event*);
 
 void globalwindowhandler::Init()
@@ -161,6 +184,8 @@ static void ProcessMessage(SDL_Event* Event)
 
     return;
    case SDL_EVENT_KEY_DOWN:
+    PendingKeypadText = 0;
+
     switch(Event->key.key)
     {
      case SDLK_RETURN:
@@ -246,6 +271,14 @@ static void ProcessMessage(SDL_Event* Event)
       return;
     }
 
+    /* A keypad key with NumLock on also emits a SDL_EVENT_TEXT_INPUT digit for
+       this very press. If we just translated the key into a game key, that
+       stray digit must be dropped, or the next blocking prompt would read it
+       as a separate keypress and close at once (the stethoscope information
+       list was the visible symptom). */
+    PendingKeypadText = (Event->key.mod & SDL_KMOD_NUM)
+      ? KeypadTextOf(Event->key.key) : 0;
+
     if(std::find(KeyBuffer.begin(), KeyBuffer.end(), KeyPressed)
        == KeyBuffer.end())
       KeyBuffer.push_back(KeyPressed);
@@ -259,6 +292,15 @@ static void ProcessMessage(SDL_Event* Event)
       return;
 
     KeyPressed = static_cast<uchar>(Event->text.text[0]);
+
+    /* Drop the digit that a keypad key already delivered as a game key. */
+    if(PendingKeypadText && KeyPressed == PendingKeypadText)
+    {
+      PendingKeypadText = 0;
+      return;
+    }
+
+    PendingKeypadText = 0;
 
     if(KeyPressed >= 0x80)
       return;
