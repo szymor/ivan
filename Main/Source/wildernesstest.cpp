@@ -250,7 +250,8 @@ namespace
      case LEAFY_FOREST:
       return Config == OAK || Config == BIRCH;
      case EVERGREEN_FOREST:
-      return Config == PINE || Config == FIR;
+      return Config == PINE || Config == FIR || Config == SNOW_PINE
+	|| Config == SNOW_FIR;
      case STEPPE:
       return Config == OAK || Config == BIRCH;
      case DESERT:

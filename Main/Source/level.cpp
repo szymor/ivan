@@ -2011,6 +2011,8 @@ struct wildernessbiome
   int Cells[3];             /* stand / structure / edge octave scales */
   int PrimarySpecies;       /* species where the species field is high */
   int SecondarySpecies;     /* species where it is low */
+  int SnowPrimarySpecies;   /* species where the snow field is high, 0 for none */
+  int SnowSecondarySpecies; /* species where the snow field is low, 0 for none */
   int CanopySpecies;        /* opaque canopy config, 0 for none */
   int ThicketSpecies;       /* impassable thicket config, 0 for none */
   int CanopyPercent;        /* share of vegetation that becomes opaque canopy */
@@ -2080,6 +2082,8 @@ wildernessbiome WildernessBiomeForType(int Type)
      P.Cells[0] = 10; P.Cells[1] = 5; P.Cells[2] = 3;
      P.PrimarySpecies = PINE;
      P.SecondarySpecies = FIR;
+     P.SnowPrimarySpecies = SNOW_PINE;
+     P.SnowSecondarySpecies = SNOW_FIR;
      P.RockChance = 9;
      P.RichGroundConfig = FOREST_FLOOR;
      P.RichGroundPercent = 16;
@@ -2440,9 +2444,11 @@ void level::GenerateEvergreenForest()
   const int SnowCells[3] = { 20, 10, 5 };
 
   /* Denser pine/fir stands with fewer, narrower clearings than the leafy
-     forest. Snow collects in the exposed clearings rather than under the
-     canopy, so it reads as a patchy winter forest instead of per-cell white
-     noise on a separate field. */
+     forest. Snow covers coherent regions of the map (the snow field), laying
+     white ground wherever it falls, whether that is open clearing or under a
+     stand. The same field makes the trees there snow-laden, so white branches
+     and white ground always travel together instead of snow-laden trees
+     standing on bare litter. */
   wildernessterrainnoise Canopy, Species, Snow;
   Canopy.Init(XSize, YSize, Cells);
   Species.Init(XSize, YSize, Cells);
@@ -2457,12 +2463,18 @@ void level::GenerateEvergreenForest()
   for(x = 0; x < XSize; ++x)
     for(y = 0; y < YSize; ++y)
     {
-      int Config = P.GroundConfig;
+      int Config;
 
-      if(Canopy.At(x, y) >= RichThreshold)
-	Config = P.RichGroundConfig;
-      else if(Snow.At(x, y) >= SnowThreshold)
+      /* Snow is the top cover: where the snow field is high the ground is
+	 white even under a stand, so a snow-laden tree always stands on snow
+	 rather than on bare litter. Elsewhere the canopy lays down litter and
+	 the open ground is whatever the biome uses. */
+      if(Snow.At(x, y) >= SnowThreshold)
 	Config = P.SnowConfig;
+      else if(Canopy.At(x, y) >= RichThreshold)
+	Config = P.RichGroundConfig;
+      else
+	Config = P.GroundConfig;
 
       Map[x][y]->SetLTerrain(solidterrain::Spawn(Config), 0);
     }
@@ -2479,8 +2491,22 @@ void level::GenerateEvergreenForest()
       if(!(RAND() % P.RockChance))
 	Map[x][y]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
       else
+      {
+	int Primary = P.PrimarySpecies;
+	int Secondary = P.SecondarySpecies;
+
+	/* A tree is drawn snow-laden exactly where the ground beneath it is
+	   snow, so the branches and the ground agree. */
+	if(P.SnowPrimarySpecies
+	   && Map[x][y]->GetGLTerrain()->GetConfig() == P.SnowConfig)
+	{
+	  Primary = P.SnowPrimarySpecies;
+	  Secondary = P.SnowSecondarySpecies;
+	}
+
 	Map[x][y]->ChangeOLTerrain(decoration::Spawn(
-	  Species.At(x, y) >= 0.5 ? P.PrimarySpecies : P.SecondarySpecies));
+	  Species.At(x, y) >= 0.5 ? Primary : Secondary));
+      }
     }
 }
 
